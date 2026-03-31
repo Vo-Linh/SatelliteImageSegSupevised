@@ -17,6 +17,24 @@ from mmseg.datasets import build_dataloader, build_dataset
 from mmseg.utils import get_root_logger
 
 
+def init_random_seed(seed=None):
+    """Initialize random seed.
+
+    If seed is None, a random seed will be generated from random module.
+    If distributed training is enabled, the seed will be synced across all
+    processes.
+
+    Args:
+        seed (int, optional): Seed to be used. Default: None.
+
+    Returns:
+        int: Random seed.
+    """
+    if seed is None:
+        seed = random.randint(0, 2**32 - 1)
+    return seed
+
+
 def set_random_seed(seed, deterministic=False):
     """Set random seed.
 
@@ -103,6 +121,8 @@ def train_segmentor(model,
             meta=meta))
 
     # register hooks
+    from mmcv.runner import IterTimerHook
+    runner.register_hook(IterTimerHook(), priority='NORMAL')
     runner.register_training_hooks(cfg.lr_config, cfg.optimizer_config,
                                    cfg.checkpoint_config, cfg.log_config,
                                    cfg.get('momentum_config', None))
@@ -122,7 +142,8 @@ def train_segmentor(model,
         eval_cfg = cfg.get('evaluation', {})
         eval_cfg['by_epoch'] = cfg.runner['type'] != 'IterBasedRunner'
         eval_hook = DistEvalHook if distributed else EvalHook
-        runner.register_hook(eval_hook(val_dataloader, **eval_cfg))
+        runner.register_hook(
+            eval_hook(val_dataloader, **eval_cfg), priority='LOW')
 
     if cfg.resume_from:
         runner.resume(cfg.resume_from)

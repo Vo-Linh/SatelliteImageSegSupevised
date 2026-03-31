@@ -11,9 +11,11 @@
 #   ./tools/dist_train.sh <config_path> <num_gpus>
 # ---------------------------------------------------------------
 
+import os
+os.environ['OPENCV_LOG_LEVEL'] = 'ERROR'
+
 import argparse
 import copy
-import os
 import os.path as osp
 import sys
 import time

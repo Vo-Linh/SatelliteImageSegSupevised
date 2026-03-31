@@ -43,6 +43,49 @@ class EvalHook(_EvalHook):
         if self.save_best:
             self._save_ckpt(runner, key_score)
 
+    def _save_ckpt(self, runner, key_score):
+        """Save checkpoint with best score.
+
+        This override is needed because IterBasedRunner.save_checkpoint()
+        doesn't accept 'save_best' parameter in newer MMCV versions.
+        """
+        if self.by_epoch:
+            current = f'epoch_{runner.epoch + 1}'
+            cur_type, cur_time = 'epoch', runner.epoch + 1
+        else:
+            current = f'iter_{runner.iter + 1}'
+            cur_type, cur_time = 'iter', runner.iter + 1
+
+        best_score = runner.meta.get('hook_msgs', {}).get(
+            'best_score', self.key_indicator == 'auto' and 0 or -float('inf'))
+
+        if self.key_indicator == 'auto':
+            # Compare with previous best score directly
+            if self.compare_func(key_score, best_score):
+                best_score = key_score
+                runner.meta['hook_msgs']['best_score'] = best_score
+                runner.meta['hook_msgs']['best_ckpt'] = runner.save_checkpoint(
+                    runner.work_dir,
+                    filename_tmpl='best_{}.pth'.format(current))
+                runner.logger.info(
+                    f'Now best checkpoint is saved as best_{current}.pth.')
+                runner.logger.info(
+                    f'Best {self.key_indicator} is {best_score: .4f} '
+                    f'at {cur_time} {cur_type}')
+        else:
+            if self.compare_func(key_score, best_score):
+                best_score = key_score
+                runner.meta['hook_msgs']['best_score'] = best_score
+                runner.meta['hook_msgs']['best_ckpt'] = runner.save_checkpoint(
+                    runner.work_dir,
+                    filename_tmpl='best_{}.pth'.format(self.key_indicator))
+                runner.logger.info(
+                    f'Now best checkpoint is saved as '
+                    f'best_{self.key_indicator}.pth.')
+                runner.logger.info(
+                    f'Best {self.key_indicator} is {best_score: .4f} '
+                    f'at {cur_time} {cur_type}')
+
 
 class DistEvalHook(_DistEvalHook):
     """Distributed EvalHook, with efficient test support.
@@ -99,3 +142,45 @@ class DistEvalHook(_DistEvalHook):
 
             if self.save_best:
                 self._save_ckpt(runner, key_score)
+
+    def _save_ckpt(self, runner, key_score):
+        """Save checkpoint with best score (distributed version).
+
+        This override is needed because IterBasedRunner.save_checkpoint()
+        doesn't accept 'save_best' parameter in newer MMCV versions.
+        """
+        if self.by_epoch:
+            current = f'epoch_{runner.epoch + 1}'
+            cur_type, cur_time = 'epoch', runner.epoch + 1
+        else:
+            current = f'iter_{runner.iter + 1}'
+            cur_type, cur_time = 'iter', runner.iter + 1
+
+        best_score = runner.meta.get('hook_msgs', {}).get(
+            'best_score', self.key_indicator == 'auto' and 0 or -float('inf'))
+
+        if self.key_indicator == 'auto':
+            if self.compare_func(key_score, best_score):
+                best_score = key_score
+                runner.meta['hook_msgs']['best_score'] = best_score
+                runner.meta['hook_msgs']['best_ckpt'] = runner.save_checkpoint(
+                    runner.work_dir,
+                    filename_tmpl='best_{}.pth'.format(current))
+                runner.logger.info(
+                    f'Now best checkpoint is saved as best_{current}.pth.')
+                runner.logger.info(
+                    f'Best {self.key_indicator} is {best_score: .4f} '
+                    f'at {cur_time} {cur_type}')
+        else:
+            if self.compare_func(key_score, best_score):
+                best_score = key_score
+                runner.meta['hook_msgs']['best_score'] = best_score
+                runner.meta['hook_msgs']['best_ckpt'] = runner.save_checkpoint(
+                    runner.work_dir,
+                    filename_tmpl='best_{}.pth'.format(self.key_indicator))
+                runner.logger.info(
+                    f'Now best checkpoint is saved as '
+                    f'best_{self.key_indicator}.pth.')
+                runner.logger.info(
+                    f'Best {self.key_indicator} is {best_score: .4f} '
+                    f'at {cur_time} {cur_type}')
