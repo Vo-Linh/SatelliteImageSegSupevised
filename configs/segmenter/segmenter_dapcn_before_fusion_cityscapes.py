@@ -44,6 +44,7 @@ model = dict(
             type='CrossEntropyLoss',
             use_sigmoid=False,
             loss_weight=1.0),
+        ignore_index=255,
         # DAPCN Configuration
         # Position of dynamic anchor application: before or after feature fusion
         da_position='before_fusion',

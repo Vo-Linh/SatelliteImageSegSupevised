@@ -40,6 +40,7 @@ model = dict(
             type='CrossEntropyLoss',
             use_sigmoid=False,
             loss_weight=1.0),
+        ignore_index=255,
         # --- Dynamic Anchor Module: BEFORE Fusion ---
         # Operates on raw backbone features before decode head processing
         # DA feature_dim auto-inferred: in_channels=512

@@ -40,6 +40,7 @@ model = dict(
             type='CrossEntropyLoss',
             use_sigmoid=False,
             loss_weight=1.0),
+        ignore_index=255,
         # --- Dynamic Anchor Module: AFTER Fusion ---
         # Operates on fused features after decode head processing
         # DA feature_dim auto-inferred: channels=128

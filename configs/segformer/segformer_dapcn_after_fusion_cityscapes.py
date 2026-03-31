@@ -33,8 +33,10 @@ model = dict(
             conv_kernel_size=1,
         ),
         loss_decode=dict(type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
+        ignore_index=255,
         # --- Dynamic Anchor: AFTER fusion ---
         da_position='after_fusion',
+        da_feature_dim=256,
         boundary_lambda=0.3,
         boundary_mode='sobel',
         boundary_loss_mode='binary',

@@ -31,6 +31,7 @@ model = dict(
         type='UNetFormerDAPCNHead',
         in_channels=[64, 128, 256, 512],
         in_index=[0, 1, 2, 3],
+        input_transform='multiple_select',
         channels=256,
         num_classes=19,
         dropout_ratio=0.1,
@@ -40,6 +41,7 @@ model = dict(
             type='CrossEntropyLoss',
             use_sigmoid=False,
             loss_weight=1.0),
+        ignore_index=255,
         # DAPCN Configuration
         # Position of dynamic anchor application: before or after feature fusion
         da_position='after_fusion',

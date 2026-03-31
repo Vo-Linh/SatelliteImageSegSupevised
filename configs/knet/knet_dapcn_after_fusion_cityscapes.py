@@ -42,6 +42,7 @@ model = dict(
         norm_cfg=norm_cfg,
         align_corners=False,
         loss_decode=dict(type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
+        ignore_index=255,
         # --- Dynamic Anchor: AFTER fusion ---
         da_position='after_fusion',
         boundary_lambda=0.3,
