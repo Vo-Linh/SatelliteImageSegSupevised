@@ -56,6 +56,11 @@ class UNetFormerHead(BaseDecodeHead):
                  norm_cfg=dict(type='BN'),
                  act_cfg=dict(type='ReLU'),
                  align_corners=False,
+                 loss_decode=dict(
+                     type='CrossEntropyLoss',
+                     use_sigmoid=False,
+                     loss_weight=1.0),
+                 ignore_index=255,
                  init_cfg=dict(
                      type='Normal', std=0.01, override=dict(name='conv_seg'))):
         super(UNetFormerHead, self).__init__(
@@ -69,6 +74,8 @@ class UNetFormerHead(BaseDecodeHead):
             norm_cfg=norm_cfg,
             act_cfg=act_cfg,
             align_corners=align_corners,
+            loss_decode=loss_decode,
+            ignore_index=ignore_index,
             init_cfg=init_cfg)
 
         self.conv_cfg = conv_cfg
@@ -155,23 +162,30 @@ class UNetFormerHead(BaseDecodeHead):
             norm_cfg=self.norm_cfg,
             act_cfg=self.act_cfg)
 
-    def forward(self, inputs):
-        """Forward pass.
+    def _decode_features(self, inputs):
+        """Run projection + progressive fusion + final conv.
+
+        Shared by forward() and forward_train() to avoid duplicate computation.
 
         Args:
             inputs (Tensor|list[Tensor]): Input features.
-                If single tensor: (B, C, H, W)
-                If list: [(B, C1, H1, W1), (B, C2, H2, W2), ...]
 
         Returns:
-            Tensor: Segmentation logits of shape (B, num_classes, H, W).
+            Tensor: Fused feature of shape (B, channels, H, W).
         """
         # Handle input transformation
-        if isinstance(inputs, list):
+        if isinstance(inputs, (list, tuple)):
             features = [inputs[i] for i in self.in_index] if isinstance(
                 self.in_index, (list, tuple)) else [inputs[self.in_index]]
         else:
             features = [inputs]
+
+        for i, feat in enumerate(features):
+            if torch.isnan(feat).any():
+                raise ValueError(
+                    f"UNetFormerHead: backbone feature[{i}] contains NaN "
+                    f"(shape={feat.shape}, range=[{feat.min():.4f}, {feat.max():.4f}])"
+                )
 
         # Project all features to same channel dimension
         projected = []
@@ -180,36 +194,52 @@ class UNetFormerHead(BaseDecodeHead):
                 proj_feat = self.proj_layers[i](feat)
             else:
                 proj_feat = self.proj_layers[-1](feat)
+            if torch.isnan(proj_feat).any():
+                raise ValueError(
+                    f"UNetFormerHead: proj_feat[{i}] contains NaN"
+                )
             projected.append(proj_feat)
 
         # Progressive fusion with upsampling
         if len(projected) > 1:
-            # Start from smallest (highest level)
             fused = projected[-1]
-
-            # Progressively upsample and fuse with larger features
             for i in range(len(projected) - 2, -1, -1):
-                # Upsample fused feature to match next scale
                 target_shape = projected[i].shape[2:]
                 fused = F.interpolate(
                     fused,
                     size=target_shape,
                     mode='bilinear',
                     align_corners=self.align_corners)
-
-                # Concatenate and decode
                 fused = torch.cat([fused, projected[i]], dim=1)
                 fused = self.decoder_layers[len(projected) - 2 - i](fused)
+                if torch.isnan(fused).any():
+                    raise ValueError(
+                        f"UNetFormerHead: decoder_layer[{len(projected) - 2 - i}] output NaN"
+                    )
         else:
-            # Single scale: just refine
             fused = self.decoder_layers[0](projected[0])
+            if torch.isnan(fused).any():
+                raise ValueError(
+                    "UNetFormerHead: single-scale decoder_layer output NaN"
+                )
 
-        # Final refinement
         fused = self.final_conv(fused)
+        if torch.isnan(fused).any():
+            raise ValueError("UNetFormerHead: final_conv output NaN")
 
-        # Classify
+        return fused
+
+    def forward(self, inputs):
+        """Forward pass.
+
+        Args:
+            inputs (Tensor|list[Tensor]): Input features.
+
+        Returns:
+            Tensor: Segmentation logits of shape (B, num_classes, H, W).
+        """
+        fused = self._decode_features(inputs)
         seg_logits = self.cls_seg(fused)
-
         return seg_logits
 
     def forward_train(self,
@@ -282,16 +312,26 @@ class UNetFormerDAPCNHead(DAPCNHeadMixin, UNetFormerHead):
                  norm_cfg=dict(type='BN'),
                  act_cfg=dict(type='ReLU'),
                  align_corners=False,
+                 loss_decode=dict(
+                     type='CrossEntropyLoss',
+                     use_sigmoid=False,
+                     loss_weight=1.0),
                  # DAPCN args
                  da_position='after_fusion',
                  boundary_lambda=0.3,
                  proto_lambda=0.1,
                  contrastive_lambda=0.1,
+                 contrastive_temperature=0.07,
+                 contrastive_sample_ratio=0.1,
                  boundary_mode='sobel',
                  boundary_loss_mode='binary',
+                 num_prototypes_per_class=1,
+                 prototype_ema=0.999,
+                 warmup_iters=500,
                  dynamic_anchor=None,
                  dapg_loss=None,
                  affinity_loss=None,
+                 ignore_index=255,
                  init_cfg=dict(
                      type='Normal', std=0.01, override=dict(name='conv_seg'))):
         # Initialize UNetFormerHead
@@ -307,6 +347,8 @@ class UNetFormerDAPCNHead(DAPCNHeadMixin, UNetFormerHead):
             norm_cfg=norm_cfg,
             act_cfg=act_cfg,
             align_corners=align_corners,
+            loss_decode=loss_decode,
+            ignore_index=ignore_index,
             init_cfg=init_cfg)
 
         # Initialize DAPCN components
@@ -319,8 +361,13 @@ class UNetFormerDAPCNHead(DAPCNHeadMixin, UNetFormerHead):
             boundary_lambda=boundary_lambda,
             proto_lambda=proto_lambda,
             contrastive_lambda=contrastive_lambda,
+            contrastive_temperature=contrastive_temperature,
+            contrastive_sample_ratio=contrastive_sample_ratio,
             boundary_mode=boundary_mode,
             boundary_loss_mode=boundary_loss_mode,
+            num_prototypes_per_class=num_prototypes_per_class,
+            prototype_ema=prototype_ema,
+            warmup_iters=warmup_iters,
             dynamic_anchor=dynamic_anchor,
             dapg_loss=dapg_loss,
             affinity_loss=affinity_loss)
@@ -331,58 +378,26 @@ class UNetFormerDAPCNHead(DAPCNHeadMixin, UNetFormerHead):
                       gt_semantic_seg,
                       train_cfg,
                       seg_weight=None):
-        """Forward function for training with DAPCN losses.
+        # Single decoder pass — get fused feature + logits together
+        fused_feature = self._decode_features(inputs)
 
-        Args:
-            inputs (list[Tensor]): List of multi-level img features.
-            img_metas (list[dict]): List of image meta info.
-            gt_semantic_seg (Tensor): Ground truth segmentation map.
-            train_cfg (dict): Training config dict.
-            seg_weight (Tensor, optional): Segmentation weight. Default: None.
+        if torch.isnan(fused_feature).any():
+            raise ValueError(
+                f"UNetFormerDAPCNHead: fused_feature contains NaN "
+                f"(shape={fused_feature.shape})"
+            )
 
-        Returns:
-            dict: Dictionary of segmentation and DAPCN losses.
-        """
-        # Standard segmentation forward
-        seg_logits = self.forward(inputs)
+        seg_logits = self.cls_seg(fused_feature)
+
+        if torch.isnan(seg_logits).any():
+            raise ValueError(
+                f"UNetFormerDAPCNHead: seg_logits contains NaN "
+                f"(shape={seg_logits.shape})"
+            )
+
         losses = self.losses(seg_logits, gt_semantic_seg, seg_weight)
 
-        # Get fused feature for DAPCN
-        # Re-derive the fused feature by running through projection and decoder
-        if isinstance(inputs, list):
-            features = [inputs[i] for i in self.in_index] if isinstance(
-                self.in_index, (list, tuple)) else [inputs[self.in_index]]
-        else:
-            features = [inputs]
-
-        # Project all features to same channel dimension
-        projected = []
-        for i, feat in enumerate(features):
-            if i < len(self.proj_layers):
-                proj_feat = self.proj_layers[i](feat)
-            else:
-                proj_feat = self.proj_layers[-1](feat)
-            projected.append(proj_feat)
-
-        # Progressive fusion (same as forward)
-        if len(projected) > 1:
-            fused = projected[-1]
-            for i in range(len(projected) - 2, -1, -1):
-                target_shape = projected[i].shape[2:]
-                fused = F.interpolate(
-                    fused,
-                    size=target_shape,
-                    mode='bilinear',
-                    align_corners=self.align_corners)
-                fused = torch.cat([fused, projected[i]], dim=1)
-                fused = self.decoder_layers[len(projected) - 2 - i](fused)
-        else:
-            fused = self.decoder_layers[0](projected[0])
-
-        # Fused feature before final classification
-        fused_feature = self.final_conv(fused)
-
-        # Compute DAPCN losses
+        # DAPCN losses use the same fused_feature (no recomputation)
         dapcn_losses = self.dapcn_forward_train(
             inputs, seg_logits, gt_semantic_seg, fused_feature)
         losses.update(dapcn_losses)

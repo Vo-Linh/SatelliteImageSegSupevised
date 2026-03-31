@@ -90,6 +90,9 @@ class DynamicAnchorModule(BaseModule):
     """
 
     EPS = 1e-6
+    # Stability constants for prototype updates
+    MAX_PROTO_NORM = 10.0  # Prevent prototype explosion
+    MIN_PROTO_NORM = 0.1   # Prevent prototype collapse
 
     def __init__(self,
                  feature_dim,
@@ -181,25 +184,41 @@ class DynamicAnchorModule(BaseModule):
         N = B * H * W
         feats = features.permute(0, 2, 3, 1).reshape(N, C)
 
-        # Normalise input features
         feats_norm = F_func.normalize(feats, dim=1)
+        feats_norm = torch.where(
+            torch.isnan(feats_norm).any(dim=1, keepdim=True),
+            torch.zeros_like(feats_norm),
+            feats_norm
+        )
 
         # Start from the persistent prototypes (normalised)
         proto = F_func.normalize(self.prototypes, dim=1)
+        proto = torch.where(
+            torch.isnan(proto).any(dim=1, keepdim=True),
+            torch.randn_like(proto) * 0.01,
+            proto
+        )
 
         # ---- Differentiable EM refinement ----
         assign = None
-        for _ in range(self.num_iters):
+        for ema_iter in range(self.num_iters):
             # E-step: soft assignment via scaled dot-product
             sim = torch.mm(feats_norm, proto.t()) / self.temperature
+            # Numerical stability: clamp sim to prevent overflow in softmax
+            sim = torch.clamp(sim, min=-50, max=50)
             assign = torch.softmax(sim, dim=1)       # (N, K)
 
-            # M-step: update prototypes from features
-            # Note: ``feats`` (un-normalised) is used so that the
-            # M-step captures magnitude information; normalisation
-            # is applied afterwards.
-            group_sizes = assign.sum(dim=0).clamp(min=self.EPS)
-            proto = torch.mm(assign.t(), feats) / group_sizes.unsqueeze(1)
+            # M-step: compute new prototypes
+            # Use larger epsilon for numerical stability
+            group_sizes = assign.sum(dim=0).clamp(min=self.EPS * 100)
+            proto_new = torch.mm(assign.t(), feats.detach()) / group_sizes.unsqueeze(1)
+            
+            # Clamp prototype magnitudes to prevent explosion/collapse
+            proto_norms = torch.norm(proto_new, dim=1, keepdim=True)
+            proto_norms = torch.clamp(proto_norms, min=self.MIN_PROTO_NORM, max=self.MAX_PROTO_NORM)
+            proto = proto_new / proto_norms
+            
+            # Additional safety: re-normalize to unit vectors
             proto = F_func.normalize(proto, dim=1)
 
         # Edge case: num_iters == 0 (skip EM, use persistent protos directly)

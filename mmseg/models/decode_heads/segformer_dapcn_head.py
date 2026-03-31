@@ -242,6 +242,11 @@ class SegFormerDAPCNHead(DAPCNHeadMixin, BaseDecodeHead):
         x = inputs
         n, _, h, w = x[-1].shape
 
+        # DEBUG: Check inputs
+        for idx, inp in enumerate(x):
+            if torch.isnan(inp).any():
+                raise ValueError(f"_get_fused_feature: inputs[{idx}] contains NaN")
+
         _c = {}
         for i in self.in_index:
             _c[i] = self.linear_c[str(i)](x[i]).permute(0, 2, 1).contiguous()
@@ -252,8 +257,17 @@ class SegFormerDAPCNHead(DAPCNHeadMixin, BaseDecodeHead):
                     size=x[0].size()[2:],
                     mode='bilinear',
                     align_corners=False)
+            # DEBUG: Check after MLP
+            if torch.isnan(_c[i]).any():
+                raise ValueError(f"_get_fused_feature: _c[{i}] after MLP/resize contains NaN")
 
-        fused = self.linear_fuse(torch.cat(list(_c.values()), dim=1))
+        cat_features = torch.cat(list(_c.values()), dim=1)
+        if torch.isnan(cat_features).any():
+            raise ValueError(f"_get_fused_feature: concatenated features contain NaN")
+
+        fused = self.linear_fuse(cat_features)
+        if torch.isnan(fused).any():
+            raise ValueError(f"_get_fused_feature: fused features after linear_fuse contain NaN")
 
         if self.dropout is not None:
             fused = self.dropout(fused)

@@ -58,6 +58,7 @@ class SegMenterHead(BaseDecodeHead):
                  norm_cfg=None,
                  act_cfg=dict(type='GELU'),
                  align_corners=False,
+                 ignore_index=255,
                  init_cfg=dict(
                      type='Normal', std=0.01, override=dict(name='conv_seg'))):
         super(SegMenterHead, self).__init__(
@@ -69,6 +70,7 @@ class SegMenterHead(BaseDecodeHead):
             norm_cfg=norm_cfg,
             act_cfg=act_cfg,
             align_corners=align_corners,
+            ignore_index=ignore_index,
             init_cfg=init_cfg)
 
         self.embed_dim = embed_dim
@@ -233,6 +235,7 @@ class SegMenterDAPCNHead(DAPCNHeadMixin, SegMenterHead):
                  dynamic_anchor=None,
                  dapg_loss=None,
                  affinity_loss=None,
+                 ignore_index=255,
                  init_cfg=dict(
                      type='Normal', std=0.01, override=dict(name='conv_seg'))):
         # Initialize SegMenterHead
@@ -250,6 +253,7 @@ class SegMenterDAPCNHead(DAPCNHeadMixin, SegMenterHead):
             norm_cfg=norm_cfg,
             act_cfg=act_cfg,
             align_corners=align_corners,
+            ignore_index=ignore_index,
             init_cfg=init_cfg)
 
         # Initialize DAPCN components

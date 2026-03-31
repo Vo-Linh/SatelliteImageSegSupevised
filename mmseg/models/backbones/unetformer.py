@@ -92,14 +92,16 @@ class LocalWindowAttention(BaseModule):
         qkv = qkv.permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
 
-        # Compute attention
+        # Compute attention with numerical stability
         attn = (q @ k.transpose(-2, -1)) * self.scale
+        # Clamp to prevent extreme values before softmax
+        attn = torch.clamp(attn, min=-10, max=10)
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
 
         # Output
         x_spatial = (attn @ v).transpose(1, 2).reshape(
-            qkv.shape[0], qkv.shape[1], window_size ** 2, C)
+            attn.shape[0], window_size ** 2, C)
         x_spatial = self.proj(x_spatial)
         x_spatial = self.proj_drop(x_spatial)
 
@@ -182,8 +184,10 @@ class GlobalTokenAttention(BaseModule):
         qkv = qkv.permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
 
-        # Compute attention
+        # Compute attention with numerical stability
         attn = (q @ k.transpose(-2, -1)) * self.scale
+        # Clamp to prevent extreme values before softmax
+        attn = torch.clamp(attn, min=-10, max=10)
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
 
@@ -470,7 +474,7 @@ class UNetFormer(BaseModule):
                 embed_dims[0],
                 kernel_size=4,
                 stride=4),
-            nn.LayerNorm(embed_dims[0]),
+            nn.BatchNorm2d(embed_dims[0]),
         )
 
         # Encoder stages
@@ -538,36 +542,58 @@ class UNetFormer(BaseModule):
 
         # Initial patch embedding (4x downsampling)
         x = self.patch_embed(x)
-        x = x.flatten(2).transpose(1, 2)  # (B, HW/16, embed_dims[0])
+        x = x.flatten(2).transpose(1, 2)  # (B, HW/4, embed_dims[0])
         cur_h, cur_w = H // 4, W // 4
 
         # Encoder forward pass
         encoder_outputs = []
+        spatial_dims = []
 
         # First stage (no patch merging)
         for block in self.encoder_stages[0]:
             x = block(x, cur_h, cur_w)
         encoder_outputs.append(x)
+        spatial_dims.append((cur_h, cur_w))
 
         # Subsequent stages (with patch merging)
         for stage_idx in range(1, self.num_stages):
             stage = self.encoder_stages[stage_idx]
             x, cur_h, cur_w = stage(x, cur_h, cur_w)
             encoder_outputs.append(x)
+            spatial_dims.append((cur_h, cur_w))
 
         # Decoder path with skip connections
         decoder_outputs = [encoder_outputs[-1]]
+        decoder_spatial = [spatial_dims[-1]]
         for i in range(len(self.decoder_stages)):
-            # Get skip connection from encoder
             skip_feature = encoder_outputs[-(i + 2)]
+            skip_spatial = spatial_dims[-(i + 2)]
 
             # Project decoder features
             x = self.decoder_stages[i](decoder_outputs[-1])
 
+            # Upsample to skip connection resolution
+            dec_h, dec_w = decoder_spatial[-1]
+            x = x.reshape(x.shape[0], dec_h, dec_w, -1).permute(0, 3, 1, 2)
+            x = F.interpolate(
+                x, size=skip_spatial, mode='bilinear', align_corners=False)
+            x = x.permute(0, 2, 3, 1).reshape(x.shape[0], -1, x.shape[1])
+
             # Fuse with skip connection
             x = x + skip_feature
             decoder_outputs.append(x)
+            decoder_spatial.append(skip_spatial)
 
-        # Return multi-scale features (encoder + decoder)
+        # Reshape all outputs from (B, N, C) to (B, C, H, W)
         all_outputs = encoder_outputs + decoder_outputs[1:]
-        return tuple(all_outputs)
+        all_spatial = spatial_dims + decoder_spatial[1:]
+        reshaped = []
+        for feat, (h, w) in zip(all_outputs, all_spatial):
+            feat = feat.reshape(feat.shape[0], h, w, -1).permute(0, 3, 1, 2)
+            if torch.isnan(feat).any():
+                raise ValueError(
+                    f"UNetFormer backbone output contains NaN (shape={feat.shape})"
+                )
+            reshaped.append(feat)
+
+        return tuple(reshaped)

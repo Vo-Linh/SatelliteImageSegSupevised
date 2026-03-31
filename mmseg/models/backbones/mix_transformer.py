@@ -177,10 +177,16 @@ class OverlapPatchEmbed(nn.Module):
         self.norm = nn.LayerNorm(embed_dim)
 
     def forward(self, x):
+        if torch.isnan(x).any():
+            raise ValueError(f"OverlapPatchEmbed: input contains NaN, input range=[{x.min():.4f}, {x.max():.4f}]")
         x = self.proj(x)
+        if torch.isnan(x).any():
+            raise ValueError(f"OverlapPatchEmbed: NaN after proj (conv), weight range=[{self.proj.weight.min():.4f}, {self.proj.weight.max():.4f}], bias exists={self.proj.bias is not None}")
         _, _, H, W = x.shape
         x = x.flatten(2).transpose(1, 2).contiguous()
         x = self.norm(x)
+        if torch.isnan(x).any():
+            raise ValueError(f"OverlapPatchEmbed: NaN after norm")
 
         return x, H, W
 
@@ -354,7 +360,18 @@ class MixVisionTransformer(BaseModule):
                 state_dict = checkpoint['model']
             else:
                 state_dict = checkpoint
+            # Check for NaN in pretrained weights
+            nan_keys = []
+            for key, value in state_dict.items():
+                if isinstance(value, torch.Tensor) and torch.isnan(value).any():
+                    nan_keys.append(key)
+            if nan_keys:
+                raise ValueError(f"Pretrained checkpoint contains NaN in keys: {nan_keys}")
             self.load_state_dict(state_dict, False)
+            # Verify loaded weights don't have NaN
+            for name, param in self.named_parameters():
+                if torch.isnan(param).any():
+                    raise ValueError(f"After loading pretrained weights, parameter {name} contains NaN")
 
     def reset_drop_path(self, drop_path_rate):
         dpr = [
@@ -400,16 +417,28 @@ class MixVisionTransformer(BaseModule):
 
         # stage 1
         x, H, W = self.patch_embed1(x)
+        if torch.isnan(x).any():
+            raise ValueError(f"MixTransformer: NaN after patch_embed1")
         for i, blk in enumerate(self.block1):
             x = blk(x, H, W)
+            if torch.isnan(x).any():
+                raise ValueError(f"MixTransformer: NaN after block1[{i}]")
         x = self.norm1(x)
+        if torch.isnan(x).any():
+            raise ValueError(f"MixTransformer: NaN after norm1")
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
+        if torch.isnan(x).any():
+            raise ValueError(f"MixTransformer: NaN after stage1 reshape")
         outs.append(x)
 
         # stage 2
         x, H, W = self.patch_embed2(x)
+        if torch.isnan(x).any():
+            raise ValueError(f"MixTransformer: NaN after patch_embed2")
         for i, blk in enumerate(self.block2):
             x = blk(x, H, W)
+            if torch.isnan(x).any():
+                raise ValueError(f"MixTransformer: NaN after block2[{i}]")
         x = self.norm2(x)
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)

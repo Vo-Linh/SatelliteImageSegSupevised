@@ -64,6 +64,8 @@ class EncoderDecoder(BaseSegmentor):
 
     def extract_feat(self, img):
         """Extract features from images."""
+        if torch.isnan(img).any():
+            raise ValueError(f"extract_feat: input img contains NaN")
         x = self.backbone(img)
         if self.with_neck:
             x = self.neck(x)

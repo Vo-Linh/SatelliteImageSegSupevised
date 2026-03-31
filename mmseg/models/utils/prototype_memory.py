@@ -99,6 +99,7 @@ class PrototypeMemory(nn.Module):
 
             class_feats = features[class_mask]           # (M, D)
             class_feats = F.normalize(class_feats, dim=1)
+            class_feats = torch.nan_to_num(class_feats, nan=0.0)
 
             s, e = self._class_slice(c)
             class_protos = self.prototypes[s:e]          # (K, D)
@@ -125,6 +126,7 @@ class PrototypeMemory(nn.Module):
                 else:
                     # Cosine similarity routing
                     proto_norm = F.normalize(class_protos, dim=1)
+                    proto_norm = torch.nan_to_num(proto_norm, nan=0.0)
                     sim = torch.mm(class_feats, proto_norm.t())  # (M, K)
                     assign = sim.argmax(dim=1)                   # (M,)
 
@@ -163,7 +165,8 @@ class PrototypeMemory(nn.Module):
 
     def get_all_normalised(self):
         """Return L2-normalised prototypes: (num_classes * K, D)."""
-        return F.normalize(self.prototypes, dim=1)
+        protos = F.normalize(self.prototypes, dim=1)
+        return torch.nan_to_num(protos, nan=0.0)
 
     def is_initialised(self):
         """True once every class has at least one updated prototype."""
@@ -212,8 +215,10 @@ def prototype_contrastive_loss(features,
         return torch.tensor(0.0, device=features.device, requires_grad=True)
 
     feats = F.normalize(features[valid], dim=1)          # (M, D)
+    feats = torch.nan_to_num(feats, nan=0.0)
     labs = labels[valid]                                   # (M,)
     proto_norm = F.normalize(prototypes, dim=1)            # (C*K, D)
+    proto_norm = torch.nan_to_num(proto_norm, nan=0.0)
 
     # Similarity matrix: (M, C*K)
     sim = torch.mm(feats, proto_norm.t()) / temperature

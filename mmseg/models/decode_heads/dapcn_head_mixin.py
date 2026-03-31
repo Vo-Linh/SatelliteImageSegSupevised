@@ -228,12 +228,12 @@ class DAPCNHeadMixin:
             self.affinity_loss_fn = build_loss(aff_cfg)
 
         # 3. Prototype Memory Bank
-        #    Always uses self.channels as feature_dim, matching
-        #    the fused_feature tensor from the decode head.
         if self.contrastive_lambda > 0:
+            contrastive_feature_dim = getattr(self, '_da_feature_dim', None) or self.channels
+
             self.proto_memory = PrototypeMemory(
                 num_classes=self.num_classes,
-                feature_dim=self.channels,
+                feature_dim=contrastive_feature_dim,
                 num_prototypes_per_class=num_prototypes_per_class,
                 ema=prototype_ema,
                 init_strategy=prototype_init_strategy,
@@ -262,27 +262,35 @@ class DAPCNHeadMixin:
             gt_semantic_seg.float(), size=(H, W),
             mode='nearest').long().squeeze(1)
 
-        # ---- 1. Boundary loss -----------------------------------------------
         if self.boundary_lambda > 0:
-            losses.update(self._boundary_loss(
-                seg_logits, gt_resized, inputs))
+            boundary_losses = self._boundary_loss(seg_logits, gt_resized, inputs)
+            for k, v in boundary_losses.items():
+                if torch.isnan(v):
+                    raise ValueError(f"dapcn_forward_train: {k} is NaN")
+            losses.update(boundary_losses)
 
         # ---- 2. DAPG prototype grouping loss --------------------------------
-        #     Feature selection depends on da_position:
-        #       before_fusion → inputs[-1]    (C = in_channels[-1])
-        #       after_fusion  → fused_feature (C = self.channels)
         if self.proto_lambda > 0:
             if self.da_position == 'before_fusion':
-                da_feat = inputs[-1]
-            else:  # after_fusion
+                if hasattr(self, 'in_index') and isinstance(self.in_index, (list, tuple)):
+                    da_feat = inputs[self.in_index[-1]]
+                else:
+                    da_feat = inputs[-1]
+            else:
                 da_feat = fused_feature
-            losses.update(self._dapg_loss(da_feat))
+            dapg_losses = self._dapg_loss(da_feat)
+            for k, v in dapg_losses.items():
+                if torch.isnan(v):
+                    raise ValueError(f"dapcn_forward_train: {k} is NaN")
+            losses.update(dapg_losses)
 
         # ---- 3. Memory-bank contrastive loss --------------------------------
-        #     Always uses fused_feature (C = self.channels)
-        if self.contrastive_lambda > 0:
-            losses.update(self._contrastive_loss(
-                fused_feature, gt_resized))
+        # if self.contrastive_lambda > 0:
+        #     contrastive_losses = self._contrastive_loss(fused_feature, gt_resized)
+        #     for k, v in contrastive_losses.items():
+        #         if torch.isnan(v):
+        #             raise ValueError(f"dapcn_forward_train: {k} is NaN")
+        #     losses.update(contrastive_losses)
 
         # ---- Advance iteration counter --------------------------------------
         self._iter += 1
@@ -311,7 +319,7 @@ class DAPCNHeadMixin:
                 F.binary_cross_entropy(b_pred, b_gt.float())
 
         elif mode == 'affinity':
-            feat = inputs[-1]
+            feat = inputs[-1].detach()
             losses['loss_boundary'] = self.boundary_lambda * \
                 self.affinity_loss_fn(feat, gt_resized)
 
@@ -320,7 +328,7 @@ class DAPCNHeadMixin:
             b_gt = compute_boundary_gt(
                 gt_resized, ignore_index=self.ignore_index)
             binary_l = F.binary_cross_entropy(b_pred, b_gt.float())
-            affinity_l = self.affinity_loss_fn(inputs[-1], gt_resized)
+            affinity_l = self.affinity_loss_fn(inputs[-1].detach(), gt_resized)
             w = self.hybrid_binary_weight
             losses['loss_boundary'] = self.boundary_lambda * \
                 (w * binary_l + (1 - w) * affinity_l)
@@ -340,6 +348,15 @@ class DAPCNHeadMixin:
         losses = {}
         B, C, Hf, Wf = da_feat.shape
 
+        if torch.isnan(da_feat).any() or torch.isinf(da_feat).any():
+            nan_ratio = torch.isnan(da_feat).float().mean()
+            inf_ratio = torch.isinf(da_feat).float().mean()
+            raise ValueError(
+                f"_dapg_loss: da_feat contains NaN/Inf "
+                f"(NaN ratio={nan_ratio:.4f}, Inf ratio={inf_ratio:.4f}, "
+                f"shape={da_feat.shape})"
+            )
+
         # Sanity check: C must match DA module's feature_dim
         assert C == self.dynamic_anchor.feature_dim, (
             f"DA input feature dim={C} != "
@@ -352,6 +369,15 @@ class DAPCNHeadMixin:
         feats_flat = da_feat.permute(0, 2, 3, 1).reshape(-1, C)
 
         assign, proto, quality = self.dynamic_anchor(da_feat)
+
+        # NaN detection: DA outputs
+        if torch.isnan(assign).any():
+            raise ValueError(f"_dapg_loss: assign contains NaN")
+        if torch.isnan(proto).any():
+            raise ValueError(f"_dapg_loss: proto contains NaN")
+        if torch.isnan(quality).any():
+            raise ValueError(f"_dapg_loss: quality contains NaN")
+
         loss_proto, proto_dict = self.dapg_loss_fn(
             feats_flat, assign, proto, quality)
 
@@ -375,6 +401,13 @@ class DAPCNHeadMixin:
         losses = {}
 
         B, D, H, W = fused_feature.shape
+
+        if torch.isnan(fused_feature).any():
+            nan_ratio = torch.isnan(fused_feature).float().mean()
+            raise ValueError(
+                f"_contrastive_loss: fused_feature contains NaN "
+                f"(ratio={nan_ratio:.4f})"
+            )
 
         # Sanity check: D must match PrototypeMemory.feature_dim
         assert D == self.proto_memory.feature_dim, (
