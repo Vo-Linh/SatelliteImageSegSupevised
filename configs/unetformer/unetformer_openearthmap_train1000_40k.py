@@ -1,4 +1,6 @@
-# UNetFormer on OpenEarthMap - Train on 1000 samples
+# UNetFormer B0 on OpenEarthMap - Train on 1000 samples
+# Paper-faithful: ResNet18 encoder + GLA decoder + DAPCN
+
 _base_ = [
     '../_base_/default_runtime.py',
     '../_base_/datasets/openearthmap_val2000.py',
@@ -10,25 +12,27 @@ norm_cfg = dict(type='BN', requires_grad=True)
 
 model = dict(
     type='EncoderDecoder',
+    pretrained=None,
     backbone=dict(
-        type='UNetFormer',
-        in_channels=3,
-        embed_dims=[64, 128, 256, 512],
-        depths=[2, 2, 6, 2],
-        num_heads=[2, 4, 8, 16],
-        window_size=7,
-        mlp_ratio=4.0,
-        drop_rate=0.0,
-        attn_drop_rate=0.0,
-        norm_cfg=norm_cfg,
+        type='TIMMBackbone',
+        model_name='resnet18.fb_swsl_ig1b_ft_in1k',
+        features_only=True,
+        pretrained=True,
+        out_indices=(1, 2, 3, 4),
     ),
     decode_head=dict(
         type='UNetFormerDAPCNHead',
         in_channels=[64, 128, 256, 512],
         in_index=[0, 1, 2, 3],
-        input_transform='multiple_select',
-        channels=256,
+        channels=64,
         num_classes=9,
+        encoder_channels=(64, 128, 256, 512),
+        decode_channels=64,
+        window_size=8,
+        num_heads=8,
+        mlp_ratio=4.0,
+        drop_path_rate=0.1,
+        input_transform='multiple_select',
         dropout_ratio=0.1,
         norm_cfg=norm_cfg,
         align_corners=False,
@@ -37,37 +41,26 @@ model = dict(
             use_sigmoid=False,
             loss_weight=1.0),
         ignore_index=255,
-        da_position='before_fusion',
-        boundary_lambda=0.3,
+        da_position='after_fusion',
+        boundary_lambda=0.15,
+        proto_lambda=0.1,
+        contrastive_lambda=0.1,
         boundary_mode='sobel',
         boundary_loss_mode='binary',
-        proto_lambda=0.1,
-        num_prototypes_per_class=1,
-        prototype_ema=0.999,
         dynamic_anchor=dict(
             type='DynamicAnchorModule',
             max_groups=64,
-            temperature=0.1,
+            temperature=0.5,
             num_iters=3,
-            init_method='xavier',
-            min_quality=0.1,
-            use_quality_gate=True,
-            use_mask_predictor=False,
-            ema_decay=0.0,
         ),
         dapg_loss=dict(
             type='DAPGLoss',
-            margin=0.3,
-            lambda_inter=0.5,
-            lambda_quality=0.1,
+            margin=0.3, lambda_inter=0.5, lambda_quality=0.1
         ),
-        contrastive_lambda=0.1,
-        contrastive_temperature=0.07,
-        contrastive_sample_ratio=0.1,
-        warmup_iters=500,
     ),
     train_cfg=dict(),
     test_cfg=dict(mode='whole'),
 )
 
 work_dir = './work_dirs/openearthmap/unetformer_train1000'
+evaluation = dict(interval=4000, metric='mIoU', pre_eval=True, save_best='mIoU')
