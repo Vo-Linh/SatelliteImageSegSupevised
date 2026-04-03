@@ -51,9 +51,14 @@ class KNetBackbone(BaseModule):
 
     def __init__(self,
                  base_backbone,
+                 pretrained=None,
                  init_cfg=None):
         super().__init__(init_cfg=init_cfg)
+        self.pretrained = pretrained
         self.base_backbone = base_backbone
+        if pretrained is not None:
+            base_backbone = base_backbone.copy()
+            base_backbone['pretrained'] = pretrained
         self.backbone = build_backbone(base_backbone)
 
     def init_weights(self):
