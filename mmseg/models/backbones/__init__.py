@@ -9,11 +9,11 @@ from .ddrnet import DDRNet
 from .pidnet import PIDNet
 from .knet_backbone import KNetBackbone
 from .segmenter_backbone import SegMenterBackbone
-from .unetformer import UNetFormer
+from .timm_backbone import TIMMBackbone
 
 __all__ = [
     'ResNet', 'ResNetV1c', 'ResNetV1d', 'ResNeXt', 'ResNeSt',
     'MixVisionTransformer',
     'mit_b0', 'mit_b1', 'mit_b2', 'mit_b3', 'mit_b4', 'mit_b5',
-    'DDRNet', 'PIDNet', 'KNetBackbone', 'SegMenterBackbone', 'UNetFormer',
+    'DDRNet', 'PIDNet', 'KNetBackbone', 'SegMenterBackbone', 'TIMMBackbone',
 ]
