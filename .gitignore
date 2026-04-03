@@ -48,7 +48,6 @@ result/
 
 # Data files
 data/
-datasets/
 *.zip
 *.tar
 *.tar.gz
