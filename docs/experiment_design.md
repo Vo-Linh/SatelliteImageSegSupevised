@@ -408,7 +408,7 @@ L = L_ce + boundary_lambda * L_boundary + proto_lambda * L_dapg + contrastive_la
 | KNet (R50) | `knet_openearthmap_train500_40k.py` | `knet_openearthmap_train1000_40k.py` | `knet_openearthmap_train1500_40k.py` |
 | SegMenter (ViT) | `segmenter_openearthmap_train500_40k.py` | `segmenter_openearthmap_train1000_40k.py` | `segmenter_openearthmap_train1500_40k.py` |
 
-### Cityscapes +DAPCN Configs
+### OpenEarthMap +DAPCN Configs
 
 | Model | before_fusion | after_fusion |
 |-------|---------------|--------------|

@@ -5,7 +5,7 @@
 #
 # Usage:
 #   python tools/train.py <config_path> [--options ...]
-#   python tools/train.py configs/ddrnet/ddrnet_dapcn_before_fusion_cityscapes.py
+#   python tools/train.py configs/segformer/segformer_mit-b5_openearthmap_train1000_40k.py
 #
 # Distributed training:
 #   ./tools/dist_train.sh <config_path> <num_gpus>

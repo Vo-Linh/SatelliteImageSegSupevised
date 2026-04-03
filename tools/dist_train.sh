@@ -4,8 +4,8 @@
 # Usage: ./tools/dist_train.sh <CONFIG> <NUM_GPUS> [PY_ARGS]
 #
 # Examples:
-#   ./tools/dist_train.sh configs/ddrnet/ddrnet_dapcn_before_fusion_cityscapes.py 4
-#   ./tools/dist_train.sh configs/segformer/segformer_dapcn_after_fusion_cityscapes.py 2 --work-dir work_dirs/exp1
+#   ./tools/dist_train.sh configs/segformer/segformer_mit-b5_openearthmap_train1000_40k.py 4
+#   ./tools/dist_train.sh configs/segformer/segformer_mit-b5_openearthmap_train1000_40k.py 2 --work-dir work_dirs/exp1
 # ---------------------------------------------------------------
 
 CONFIG=$1
