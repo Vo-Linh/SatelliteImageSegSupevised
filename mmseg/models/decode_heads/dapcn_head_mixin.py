@@ -349,13 +349,20 @@ class DAPCNHeadMixin:
         B, C, Hf, Wf = da_feat.shape
 
         if torch.isnan(da_feat).any() or torch.isinf(da_feat).any():
+            # Defensive: return zero loss instead of crashing so training
+            # can recover from transient NaN spikes in backbone features.
             nan_ratio = torch.isnan(da_feat).float().mean()
             inf_ratio = torch.isinf(da_feat).float().mean()
-            raise ValueError(
-                f"_dapg_loss: da_feat contains NaN/Inf "
+            import logging
+            logging.getLogger('mmseg').warning(
+                f"_dapg_loss: skipping DAPG loss due to NaN/Inf in da_feat "
                 f"(NaN ratio={nan_ratio:.4f}, Inf ratio={inf_ratio:.4f}, "
-                f"shape={da_feat.shape})"
-            )
+                f"shape={da_feat.shape})")
+            losses['loss_dapg'] = da_feat.sum() * 0.0
+            losses['dapg_loss_intra'] = torch.tensor(0.0, device=da_feat.device)
+            losses['dapg_loss_inter'] = torch.tensor(0.0, device=da_feat.device)
+            losses['dapg_loss_quality'] = torch.tensor(0.0, device=da_feat.device)
+            return losses
 
         # Sanity check: C must match DA module's feature_dim
         assert C == self.dynamic_anchor.feature_dim, (
