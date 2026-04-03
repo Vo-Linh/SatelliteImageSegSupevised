@@ -22,7 +22,7 @@ model = dict(
     ),
     decode_head=dict(
         type='UNetFormerDAPCNHead',
-        in_channels=[64, 128, 256, 512],
+        in_channels=[256, 512, 1024, 2048],
         in_index=[0, 1, 2, 3],
         channels=64,
         num_classes=9,

@@ -86,56 +86,37 @@ class UNetFormerHead(BaseDecodeHead):
         # FeatureRefinementHead: final refinement with res1
         self.frh = FeatureRefinementHead(in_channels=encoder_channels[0], decode_channels=decode_channels)
 
-    def forward(self, inputs):
-        """Forward pass.
-        
+    def _decode(self, inputs):
+        """Run the GLA decoder, returning the fused feature before cls_seg.
+
         Args:
             inputs (list[Tensor]): 4 feature maps from backbone [res1, res2, res3, res4].
-        
+
         Returns:
-            Tensor: Segmentation logits (B, num_classes, H/4, W/4).
+            Tensor: Fused feature (B, decode_channels, H/4, W/4).
         """
-        # inputs = [res1(H/4), res2(H/8), res3(H/16), res4(H/32)]
         res1, res2, res3, res4 = inputs[0], inputs[1], inputs[2], inputs[3]
 
-        # Deepest to shallowest processing
-        x = self.pre_conv4(res4)      # (B, decode_channels, H/32, W/32)
+        x = self.pre_conv4(res4)       # (B, decode_channels, H/32, W/32)
         x = self.b4(x)                 # transformer at H/32
         x = self.wf3(x, res3)          # upsample + weighted fusion with res3 -> H/16
         x = self.b3(x)                 # transformer at H/16
         x = self.wf2(x, res2)          # upsample + weighted fusion with res2 -> H/8
         x = self.b2(x)                 # transformer at H/8
         x = self.frh(x, res1)          # feature refinement with res1 -> H/4
-
-        # Classification (from BaseDecodeHead)
-        output = self.cls_seg(x)
-        return output
-
-    def _get_fused_feature(self, inputs):
-        """Get fused decoder feature BEFORE classification.
-        
-        Used by DAPCNHeadMixin for prototype learning.
-        
-        Args:
-            inputs (list[Tensor]): 4 feature maps from backbone.
-        
-        Returns:
-            Tensor: Fused feature (B, decode_channels, H/4, W/4).
-        """
-        res1, res2, res3, res4 = inputs[0], inputs[1], inputs[2], inputs[3]
-        x = self.pre_conv4(res4)
-        x = self.b4(x)
-        x = self.wf3(x, res3)
-        x = self.b3(x)
-        x = self.wf2(x, res2)
-        x = self.b2(x)
-        x = self.frh(x, res1)
         return x
 
+    def forward(self, inputs):
+        """Forward pass.
 
-class UNetFormerHead_(UNetFormerHead):
-    """Alias for backward compatibility."""
-    pass
+        Args:
+            inputs (list[Tensor]): 4 feature maps from backbone [res1, res2, res3, res4].
+
+        Returns:
+            Tensor: Segmentation logits (B, num_classes, H/4, W/4).
+        """
+        x = self._decode(inputs)
+        return self.cls_seg(x)
 
 
 @HEADS.register_module()
@@ -240,19 +221,13 @@ class UNetFormerDAPCNHead(DAPCNHeadMixin, UNetFormerHead):
 
     def forward_train(self, inputs, img_metas, gt_semantic_seg, train_cfg, seg_weight=None):
         """Forward + loss with DAPCN auxiliary losses."""
-        # Get segmentation logits
-        seg_logits = self.forward(inputs)
+        # Single decoder pass: reuse for both logits and DAPCN features
+        fused_feature = self._decode(inputs)
+        seg_logits = self.cls_seg(fused_feature)
         # Standard CE loss
         losses = self.losses(seg_logits, gt_semantic_seg, seg_weight)
-        # Get fused feature for DAPCN
-        fused_feature = self._get_fused_feature(inputs)
         # DAPCN auxiliary losses
         dapcn_losses = self.dapcn_forward_train(
             inputs, seg_logits, gt_semantic_seg, fused_feature)
         losses.update(dapcn_losses)
         return losses
-
-
-class UNetFormerDAPCNHead_(UNetFormerDAPCNHead):
-    """Alias for backward compatibility."""
-    pass

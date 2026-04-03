@@ -45,8 +45,8 @@ class SeparableConvBNReLU(nn.Sequential):
             nn.Conv2d(in_channels, in_channels, kernel_size, stride=stride, dilation=dilation,
                       padding=((stride - 1) + dilation * (kernel_size - 1)) // 2,
                       groups=in_channels, bias=False),
-            norm_layer(out_channels),
             nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False),
+            norm_layer(out_channels),
             nn.ReLU6()
         )
 
@@ -57,8 +57,8 @@ class SeparableConvBN(nn.Sequential):
             nn.Conv2d(in_channels, in_channels, kernel_size, stride=stride, dilation=dilation,
                       padding=((stride - 1) + dilation * (kernel_size - 1)) // 2,
                       groups=in_channels, bias=False),
-            norm_layer(out_channels),
-            nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
+            nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False),
+            norm_layer(out_channels)
         )
 
 
