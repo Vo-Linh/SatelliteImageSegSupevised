@@ -124,10 +124,15 @@ def compute_boundary_gt(seg_label, ignore_index=255):
     diff_h = (label_pad[:, :, 1:-1, :-2] != label_pad[:, :, 1:-1, 2:])
     diff_v = (label_pad[:, :, :-2, 1:-1] != label_pad[:, :, 2:, 1:-1])
 
-    mask_ignore = (seg_label != ignore_index).float()
+    # Dilate ignore mask by 1 pixel so that valid pixels adjacent to
+    # ignore regions are also excluded — their neighbor label is unknown,
+    # so the boundary state is undefined there.
+    ignore_mask = (seg_label == ignore_index).float()
+    ignore_dilated = F.max_pool2d(ignore_mask, kernel_size=3, stride=1, padding=1)
+    mask_valid = 1.0 - ignore_dilated
 
     boundary = torch.logical_or(diff_h, diff_v).float()
-    boundary = boundary * mask_ignore
+    boundary = boundary * mask_valid
 
     return boundary
 

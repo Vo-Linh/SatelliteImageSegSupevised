@@ -211,7 +211,7 @@ class DynamicAnchorModule(BaseModule):
             # M-step: compute new prototypes
             # Use larger epsilon for numerical stability
             group_sizes = assign.sum(dim=0).clamp(min=self.EPS * 100)
-            proto_new = torch.mm(assign.t(), feats.detach()) / group_sizes.unsqueeze(1)
+            proto_new = torch.mm(assign.t(), feats) / group_sizes.unsqueeze(1)
             
             # Clamp prototype magnitudes to prevent explosion/collapse
             proto_norms = torch.norm(proto_new, dim=1, keepdim=True)
