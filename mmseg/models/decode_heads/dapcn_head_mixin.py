@@ -393,55 +393,6 @@ class DAPCNHeadMixin:
         for k, v in proto_dict.items():
             losses[f'dapg_{k}'] = v.detach()
 
-        # Unsupervised contrastive loss using EMA prototypes
-        if (self.contrastive_lambda > 0
-                and self.dynamic_anchor.ema_decay > 0
-                and self._iter >= self.warmup_iters):
-            cl = self._unsupervised_contrastive_loss(
-                feats_flat,
-                self.dynamic_anchor._ema_prototypes.detach())
-            losses.update(cl)
-
-        return losses
-
-    def _unsupervised_contrastive_loss(self, feats_flat, ema_prototypes):
-        """Unsupervised InfoNCE using DA EMA prototypes as stable anchors.
-
-        Each pixel is assigned to its nearest EMA prototype (pseudo-label).
-        The loss pulls pixels toward their assigned prototype and pushes
-        them away from all others. No GT labels are used.
-
-        Args:
-            feats_flat (Tensor): (N, C) pixel features from DA input.
-            ema_prototypes (Tensor): (K, C) EMA-smoothed prototypes.
-
-        Returns:
-            dict: Loss dictionary with 'loss_contrastive' key.
-        """
-        losses = {}
-        N, C = feats_flat.shape
-        K = ema_prototypes.shape[0]
-
-        feats_norm = F.normalize(feats_flat, dim=1)
-        proto_norm = F.normalize(ema_prototypes, dim=1)
-
-        # Sub-sample for memory efficiency
-        n_sample = max(1, int(N * self.contrastive_sample_ratio))
-        perm = torch.randperm(N, device=feats_flat.device)[:n_sample]
-        sample_feats = feats_norm[perm]
-
-        # Similarity and pseudo-labels from stable EMA prototypes
-        sim = torch.mm(sample_feats, proto_norm.t())  # (n_sample, K)
-        pseudo_labels = sim.argmax(dim=1)              # (n_sample,)
-
-        # InfoNCE: -log softmax(sim / tau)[i, pseudo_label[i]]
-        log_probs = F.log_softmax(
-            sim / self.contrastive_temperature, dim=1)
-        loss = -log_probs[
-            torch.arange(n_sample, device=sim.device), pseudo_labels
-        ].mean()
-
-        losses['loss_contrastive'] = self.contrastive_lambda * loss
         return losses
 
     def _contrastive_loss(self, fused_feature, gt_resized):
