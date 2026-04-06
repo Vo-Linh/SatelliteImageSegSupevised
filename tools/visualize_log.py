@@ -32,6 +32,23 @@ def extract_metric(data, metric_key):
     return np.array(steps), np.array(values)
 
 
+def extract_val_metric(data, metric_key):
+    """Extract a val metric using the preceding train entry's iter as x-axis."""
+    steps = []
+    values = []
+    last_train_iter = None
+    for entry in data:
+        if entry.get('mode') == 'train':
+            last_train_iter = entry.get('iter')
+        elif entry.get('mode') == 'val' and metric_key in entry:
+            if last_train_iter is not None:
+                steps.append(last_train_iter)
+            elif 'iter' in entry:
+                steps.append(entry['iter'])
+            values.append(entry[metric_key])
+    return np.array(steps), np.array(values)
+
+
 def plot_metric(ax, data, metric_key, title, ylabel, color='blue', smooth=False, window=50):
     """Plot a single metric on the given axis."""
     steps, values = extract_metric(data, metric_key)
@@ -122,32 +139,45 @@ def plot_loss_components(data, save_path=None):
 
 
 def plot_evaluation_metrics(data, save_path=None):
-    """Plot evaluation metrics (aAcc, mIoU, mAcc)."""
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    metrics = [
-        ('aAcc', 'Overall Accuracy', 'tab:blue'),
-        ('mIoU', 'Mean IoU', 'tab:orange'),
-        ('mAcc', 'Mean Accuracy', 'tab:green'),
-    ]
-    
-    has_data = False
-    for key, label, color in metrics:
-        steps, values = extract_metric(data, key)
-        if len(steps) > 0:
-            ax.plot(steps, values, 'o-', label=label, color=color, linewidth=2, markersize=6)
-            has_data = True
-    
-    if has_data:
-        ax.set_xlabel('Iteration', fontsize=12)
-        ax.set_ylabel('Score', fontsize=12)
-        ax.set_title('Evaluation Metrics', fontsize=14, fontweight='bold')
-        ax.legend(fontsize=10)
-        ax.grid(True, alpha=0.3)
+    """Plot evaluation metrics with mIoU and Accuracy on separate subplots."""
+    fig, (ax_miou, ax_acc) = plt.subplots(1, 2, figsize=(16, 6))
+    fig.suptitle('Evaluation Metrics', fontsize=14, fontweight='bold')
+
+    miou_steps, miou_values = extract_val_metric(data, 'mIoU')
+    if len(miou_steps) > 0:
+        ax_miou.plot(miou_steps, miou_values, 'o-', color='tab:orange',
+                     linewidth=2, markersize=6, label='mIoU')
+        ax_miou.set_xlabel('Iteration', fontsize=12)
+        ax_miou.set_ylabel('mIoU', fontsize=12)
+        ax_miou.set_title('Mean IoU', fontsize=13, fontweight='bold')
+        ax_miou.legend(fontsize=10)
+        ax_miou.grid(True, alpha=0.3)
     else:
-        ax.text(0.5, 0.5, 'No evaluation metrics found', 
-                ha='center', va='center', transform=ax.transAxes, fontsize=12)
-    
+        ax_miou.text(0.5, 0.5, 'No mIoU data found',
+                     ha='center', va='center', transform=ax_miou.transAxes, fontsize=12)
+
+    acc_metrics = [
+        ('aAcc', 'Overall Accuracy (aAcc)', 'tab:blue'),
+        ('mAcc', 'Mean Accuracy (mAcc)', 'tab:green'),
+    ]
+    acc_has_data = False
+    for key, label, color in acc_metrics:
+        steps, values = extract_val_metric(data, key)
+        if len(steps) > 0:
+            ax_acc.plot(steps, values, 'o-', label=label, color=color,
+                        linewidth=2, markersize=6)
+            acc_has_data = True
+
+    if acc_has_data:
+        ax_acc.set_xlabel('Iteration', fontsize=12)
+        ax_acc.set_ylabel('Accuracy', fontsize=12)
+        ax_acc.set_title('Accuracy Metrics', fontsize=13, fontweight='bold')
+        ax_acc.legend(fontsize=10)
+        ax_acc.grid(True, alpha=0.3)
+    else:
+        ax_acc.text(0.5, 0.5, 'No accuracy data found',
+                    ha='center', va='center', transform=ax_acc.transAxes, fontsize=12)
+
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
