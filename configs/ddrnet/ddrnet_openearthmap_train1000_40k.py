@@ -15,8 +15,7 @@ model = dict(
         in_channels=3,
         channels=64,
         ppm_channels=128,
-        norm_cfg=norm_cfg,
-        act_cfg=dict(type='ReLU', inplace=True),
+        norm_cfg=norm_cfg
     ),
     decode_head=dict(
         type='DDRNetDAPCNHead',
@@ -32,7 +31,7 @@ model = dict(
             use_sigmoid=False,
             loss_weight=1.0),
         ignore_index=255,
-        da_position='before_fusion',
+        da_position='after_fusion',
         boundary_lambda=0.3,
         boundary_mode='sobel',
         boundary_loss_mode='binary',

@@ -17,7 +17,6 @@ model = dict(
         channels=64,
         ppm_channels=96,
         norm_cfg=norm_cfg,
-        act_cfg=dict(type='ReLU', inplace=True),
     ),
     decode_head=dict(
         type='PIDNetDAPCNHead',
@@ -33,8 +32,8 @@ model = dict(
             use_sigmoid=False,
             loss_weight=1.0),
         ignore_index=255,
-        da_position='before_fusion',
-        boundary_lambda=0.3,
+        da_position='after_fusion',
+        boundary_lambda=0.15,
         boundary_mode='sobel',
         boundary_loss_mode='binary',
         proto_lambda=0.1,

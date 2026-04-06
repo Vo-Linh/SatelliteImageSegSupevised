@@ -11,7 +11,7 @@ norm_cfg = dict(type='BN', requires_grad=True)
 
 model = dict(
     type='EncoderDecoder',
-    pretrained='pretrained/resnet50_v1c.pth',
+    pretrained='https://download.openmmlab.com/mmsegmentation/v0.5/knet/knet_s3_fcn_r50-d8_8x2_512x512_adamw_80k_ade20k/knet_s3_fcn_r50-d8_8x2_512x512_adamw_80k_ade20k_20220228_043751-abcab920.pth',
     backbone=dict(
         type='KNetBackbone',
         base_backbone=dict(
@@ -43,8 +43,8 @@ model = dict(
             use_sigmoid=False,
             loss_weight=1.0),
         ignore_index=255,
-        da_position='before_fusion',
-        boundary_lambda=0.3,
+        da_position='after_fusion',
+        boundary_lambda=0.15,
         boundary_mode='sobel',
         boundary_loss_mode='binary',
         proto_lambda=0.1,

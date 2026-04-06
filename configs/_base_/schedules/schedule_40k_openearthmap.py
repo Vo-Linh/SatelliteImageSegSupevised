@@ -1,6 +1,6 @@
 optimizer = dict(
     type='AdamW',
-    lr=6e-5,
+    lr=1e-5,
     betas=(0.9, 0.999),
     weight_decay=0.01,
     paramwise_cfg=dict(
@@ -28,4 +28,5 @@ checkpoint_config = dict(
     by_epoch=False,
     interval=4000,
     max_keep_ckpts=2)
+
 evaluation = dict(interval=4000, metric='mIoU', pre_eval=True, save_best='mIoU')

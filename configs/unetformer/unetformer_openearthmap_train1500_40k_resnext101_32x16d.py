@@ -62,12 +62,12 @@ model = dict(
     test_cfg=dict(mode='whole'),
 )
 
-work_dir = './work_dirs/openearthmap/unetformer_train1000_resnext101_32x16d'
+work_dir = './work_dirs/openearthmap/unetformer_train1500_resnext101_32x16d'
 data = dict(
     samples_per_gpu=8,
     workers_per_gpu=2,
     train=dict(
-        split='train_1000_fixed.txt'))
+        split='train_1500_fixed.txt'))
 runner = dict(type='IterBasedRunner', max_iters=60000)
 
 evaluation = dict(interval=4000, metric='mIoU', pre_eval=True, save_best='mIoU')
