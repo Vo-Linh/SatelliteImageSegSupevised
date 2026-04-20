@@ -2,22 +2,20 @@
 
 ## Overview
 
-DAPCN (Dynamic Anchor Prototype Clustering Network) is a plug-and-play module that augments any semantic segmentation decode head with three auxiliary loss components:
+DAPCN (Dynamic Anchor Prototype Clustering Network) is a plug-and-play module that augments any semantic segmentation decode head with two auxiliary loss components:
 
 1. **DynamicAnchorModule + DAPGLoss** — Dataset-level learnable prototypes with differentiable EM refinement
 2. **Boundary Loss** — Sobel/Laplacian/diff-based boundary detection with BCE or affinity loss
-3. **PrototypeMemory + InfoNCE** — Persistent EMA class-conditioned prototypes with contrastive regularization
 
 **Total Loss:**
 ```
-L = L_ce + boundary_lambda * L_boundary + proto_lambda * L_dapg + contrastive_lambda * L_contrastive
+L = L_ce + boundary_lambda * L_boundary + proto_lambda * L_dapg
 ```
 
 **Default hyperparameters:**
-- boundary_lambda = 0.3, proto_lambda = 0.1, contrastive_lambda = 0.1
+- boundary_lambda = 0.15, proto_lambda = 0.1
 - DynamicAnchor: K=64, tau=0.1, EM iters=3, init=xavier, quality_gate=True
 - DAPGLoss: margin=0.3, lambda_inter=0.5, lambda_quality=0.1
-- Contrastive: temperature=0.07, sample_ratio=0.1, warmup=500 iters
 
 ---
 
@@ -80,7 +78,7 @@ L = L_ce + boundary_lambda * L_boundary + proto_lambda * L_dapg + contrastive_la
 
 **Setup:** OEM train1000, 3 representative architectures.
 
-**Configs needed (Cityscapes variants exist; OEM variants to create):**
+**Configs needed (OEM variants to create by toggling `da_position` in each model's train1000 config):**
 
 | Model | before_fusion | after_fusion |
 |-------|:---:|:---:|
@@ -144,26 +142,20 @@ L = L_ce + boundary_lambda * L_boundary + proto_lambda * L_dapg + contrastive_la
 
 **Goal:** Isolate the contribution of each DAPCN loss component.
 
-**Setup:** UNetFormer-R18 on OEM train1000. Disable components by setting lambda=0.
+**Setup:** UNetFormer-ResNeXt101 on OEM train1000. Disable components by setting lambda=0. Existing configs: `configs/unetformer/ablation/unetformer_resnext101_oem_{boundary_only,dapg_only,boundary_dapg}.py`.
 
-| CE | +L_boundary | +L_dapg | +L_contrastive | mIoU | Config Note |
-|:---:|:---:|:---:|:---:|:---:|:---|
-| Y | | | | | Baseline (no DAPCN) |
-| Y | Y | | | | boundary_lambda=0.3, proto_lambda=0, contrastive_lambda=0 |
-| Y | | Y | | | boundary_lambda=0, proto_lambda=0.1, contrastive_lambda=0 |
-| Y | | | Y | | boundary_lambda=0, proto_lambda=0, contrastive_lambda=0.1 |
-| Y | Y | Y | | | boundary_lambda=0.3, proto_lambda=0.1, contrastive_lambda=0 |
-| Y | Y | Y | Y | | Full DAPCN (default) |
-
-**Note:** Contrastive loss is currently disabled in `dapcn_head_mixin.py:289-293` (commented out). Un-comment to enable for this ablation.
+| CE | +L_boundary | +L_dapg | mIoU | Config |
+|:---:|:---:|:---:|:---:|:---|
+| Y | | | | Baseline (no DAPCN) |
+| Y | Y | | | `unetformer_resnext101_oem_boundary_only.py` (boundary_lambda=0.15, proto_lambda=0) |
+| Y | | Y | | `unetformer_resnext101_oem_dapg_only.py` (boundary_lambda=0, proto_lambda=0.1) |
+| Y | Y | Y | | `unetformer_resnext101_oem_boundary_dapg.py` (boundary_lambda=0.15, proto_lambda=0.1) — Full DAPCN |
 
 **Expected Outcomes:**
 - **L_boundary alone** should provide a moderate boost (+0.5–1.5% mIoU), mainly on boundary-sensitive classes (building edges, thin roads). Boundary supervision is a well-understood technique; the gain confirms it helps but is not the full story.
 - **L_dapg alone** should be the **single strongest component** (+1.0–2.0% mIoU). The DynamicAnchorModule's learnable prototypes with EM refinement provide a structural prior on the feature space — encouraging compact, well-separated clusters even without explicit class labels at the prototype level.
-- **L_contrastive alone** should provide modest gains (+0.3–1.0% mIoU) but less than L_dapg, since it depends on the PrototypeMemory being well-initialized (requires warmup) and acts as a regularizer rather than a direct feature structuring mechanism.
-- **L_boundary + L_dapg** should be **near-optimal** and close to the full DAPCN, suggesting these two are the most complementary: boundary loss sharpens spatial boundaries while DAPG structures the feature space globally.
-- **Full DAPCN** (all three) should achieve the best result, but the marginal gain from adding contrastive on top of boundary+DAPG may be small (+0.1–0.5%), confirming that L_contrastive plays a supporting role.
-- This ablation validates that DAPCN's improvement is not driven by a single trick but by the complementary interplay of geometric (boundary), structural (prototype), and discriminative (contrastive) objectives.
+- **L_boundary + L_dapg (Full DAPCN)** should achieve the best result, demonstrating that the two losses are complementary: boundary loss sharpens spatial boundaries while DAPG structures the feature space globally.
+- This ablation validates that DAPCN's improvement is not driven by a single trick but by the complementary interplay of geometric (boundary) and structural (prototype) objectives.
 
 ---
 
@@ -171,7 +163,7 @@ L = L_ce + boundary_lambda * L_boundary + proto_lambda * L_dapg + contrastive_la
 
 **Goal:** Study sensitivity to key DA hyperparameters.
 
-**Setup:** UNetFormer-R18 on OEM train1000. Vary one parameter at a time, others at default.
+**Setup:** UNetFormer-ResNeXt101 on OEM train1000. Vary one parameter at a time, others at default.
 
 ### 5a. Number of Prototypes (max_groups K)
 
@@ -238,7 +230,7 @@ L = L_ce + boundary_lambda * L_boundary + proto_lambda * L_dapg + contrastive_la
 
 **Goal:** Compare boundary extraction operators and loss formulations.
 
-**Setup:** UNetFormer-R18 on OEM train1000.
+**Setup:** UNetFormer-ResNeXt101 on OEM train1000.
 
 | boundary_mode | boundary_loss_mode | mIoU | Boundary F1 |
 |:---:|:---:|:---:|:---:|
@@ -258,11 +250,11 @@ L = L_ce + boundary_lambda * L_boundary + proto_lambda * L_dapg + contrastive_la
 
 ---
 
-## Exp 7: Cross-Dataset Generalization — Cityscapes
+## Exp 7: DA Position — Full Model Coverage on OpenEarthMap
 
-**Goal:** Show DAPCN is not satellite-specific; it generalizes to urban street scenes.
+**Goal:** Extend the DA-position study (Exp 2) across all 6 model families on the main OEM dataset, to establish whether `before_fusion` vs `after_fusion` interacts with architecture choice at scale.
 
-**Setup:** Cityscapes (19 classes), 40K iterations.
+**Setup:** OEM train1000, 40K iterations. For each model, create/run `before_fusion` and `after_fusion` variants of the existing `*_openearthmap_train1000_40k.py` config by setting `da_position` accordingly.
 
 | Model | Baseline mIoU | +DAPCN (before) mIoU | +DAPCN (after) mIoU |
 |-------|:---:|:---:|:---:|
@@ -273,14 +265,12 @@ L = L_ce + boundary_lambda * L_boundary + proto_lambda * L_dapg + contrastive_la
 | KNet (R50) | | | |
 | SegMenter (ViT) | | | |
 
-**Existing configs:** All models have `*_dapcn_before_fusion_cityscapes.py` and `*_dapcn_after_fusion_cityscapes.py`.
-
 **Expected Outcomes:**
-- DAPCN should deliver positive gains on Cityscapes across all models, confirming it is **domain-agnostic** — not satellite-specific.
-- The absolute improvement may be smaller than on OEM (+0.5–1.5% mIoU), since Cityscapes is a much larger, well-saturated benchmark where baselines are already strong and heavily optimized.
-- Gains should be most visible on boundary-heavy classes: pole, fence, traffic sign — classes where crisp edge prediction matters. Per-class IoU analysis is important here.
-- `before_fusion` vs `after_fusion` may show a different winner than on OEM, because Cityscapes images have very different spatial structure (street-level perspective vs overhead satellite). This highlights the importance of Exp 2 across domains.
-- This experiment strengthens the paper by showing DAPCN is a general-purpose module, not an artifact of the satellite domain's specific characteristics (overhead view, uniform scale, distinct land-cover patterns).
+- DAPCN should deliver positive gains at both positions across all 6 models, confirming the mechanism is architecture-agnostic within the OEM domain.
+- `after_fusion` should generally win for architectures with strong multi-scale decoders (UNetFormer, SegFormer), where fused features carry richer semantics for prototype clustering.
+- `before_fusion` may be competitive or preferable for single-scale / lightweight decoders (DDRNet, PIDNet), where the raw backbone feature already carries strong semantic information.
+- Gaps between positions should be small (0.3–0.8% mIoU), demonstrating that DAPCN is robust to placement — an important practical property for a plug-and-play module.
+- Per-class IoU gains should concentrate on boundary-heavy classes (building, road) and under-represented classes (bareland, water), regardless of position choice.
 
 ---
 
@@ -288,7 +278,7 @@ L = L_ce + boundary_lambda * L_boundary + proto_lambda * L_dapg + contrastive_la
 
 **Goal:** Quantify the parameter/FLOPs/inference overhead of DAPCN.
 
-**Key insight:** DAPCN auxiliary losses (boundary, DAPG, contrastive) are **training-only**. At inference, only the DynamicAnchorModule's learnable prototypes add parameters (K * C floats), but they are not used in the forward pass.
+**Key insight:** DAPCN auxiliary losses (boundary, DAPG) are **training-only**. At inference, only the DynamicAnchorModule's learnable prototypes add parameters (K * C floats), but they are not used in the forward pass.
 
 | Model | Params (M) | +DAPCN Params (M) | Overhead% | FLOPs (G) | +DAPCN FLOPs (G) | Inference ms |
 |-------|:---:|:---:|:---:|:---:|:---:|:---:|
@@ -301,9 +291,9 @@ L = L_ce + boundary_lambda * L_boundary + proto_lambda * L_dapg + contrastive_la
 
 **Expected Outcomes:**
 - **Parameter overhead** should be minimal (<1% for most models). The DynamicAnchorModule adds K*C parameters (e.g., 64*256 = 16K floats = 0.06MB) plus a small quality_net MLP. The PrototypeMemory is a buffer (no gradient), not counted as learnable params.
-- **FLOPs overhead at inference: zero.** DAPCN's auxiliary losses (boundary, DAPG, contrastive) are only computed during training. At inference, the model uses the standard forward path — `decode_head.forward()` does not invoke the DynamicAnchorModule. This is the strongest efficiency argument.
-- **Training FLOPs overhead** is moderate (~5–15%), primarily from the EM refinement (3 iterations of matrix multiply over N*K), boundary Sobel convolution, and contrastive loss sampling. Larger overheads on SegMenter/SegFormer due to higher feature dimensions.
-- **Inference latency** should be identical between baseline and +DAPCN, since the DA module, boundary loss, and contrastive loss are not part of the inference graph. Any measured difference should be within noise margin (<1ms).
+- **FLOPs overhead at inference: zero.** DAPCN's auxiliary losses (boundary, DAPG) are only computed during training. At inference, the model uses the standard forward path — `decode_head.forward()` does not invoke the DynamicAnchorModule. This is the strongest efficiency argument.
+- **Training FLOPs overhead** is moderate (~5–15%), primarily from the EM refinement (3 iterations of matrix multiply over N*K) and the boundary Sobel convolution. Larger overheads on SegMenter/SegFormer due to higher feature dimensions.
+- **Inference latency** should be identical between baseline and +DAPCN, since the DA module and boundary loss are not part of the inference graph. Any measured difference should be within noise margin (<1ms).
 - This is a key selling point: DAPCN provides "free" improvements at inference time — the cost is only during training. For deployment-sensitive applications (real-time satellite monitoring, edge devices), this is highly attractive.
 
 ---
@@ -408,13 +398,14 @@ L = L_ce + boundary_lambda * L_boundary + proto_lambda * L_dapg + contrastive_la
 | KNet (R50) | `knet_openearthmap_train500_40k.py` | `knet_openearthmap_train1000_40k.py` | `knet_openearthmap_train1500_40k.py` |
 | SegMenter (ViT) | `segmenter_openearthmap_train500_40k.py` | `segmenter_openearthmap_train1000_40k.py` | `segmenter_openearthmap_train1500_40k.py` |
 
-### OpenEarthMap +DAPCN Configs
+### OpenEarthMap Ablation Configs (UNetFormer-ResNeXt101)
 
-| Model | before_fusion | after_fusion |
-|-------|---------------|--------------|
-| UNetFormer R18 | `unetformer_dapcn_before_fusion_cityscapes.py` | `unetformer_dapcn_after_fusion_cityscapes.py` |
-| DDRNet | `ddrnet_dapcn_before_fusion_cityscapes.py` | `ddrnet_dapcn_after_fusion_cityscapes.py` |
-| SegFormer MiT-B5 | `segformer_dapcn_before_fusion_cityscapes.py` | `segformer_dapcn_after_fusion_cityscapes.py` |
-| PIDNet | `pidnet_dapcn_before_fusion_cityscapes.py` | `pidnet_dapcn_after_fusion_cityscapes.py` |
-| KNet (R50) | `knet_dapcn_before_fusion_cityscapes.py` | `knet_dapcn_after_fusion_cityscapes.py` |
-| SegMenter (ViT) | `segmenter_dapcn_before_fusion_cityscapes.py` | `segmenter_dapcn_after_fusion_cityscapes.py` |
+| Ablation | Config |
+|----------|--------|
+| Boundary only | `configs/unetformer/ablation/unetformer_resnext101_oem_boundary_only.py` |
+| DAPG only | `configs/unetformer/ablation/unetformer_resnext101_oem_dapg_only.py` |
+| Boundary + DAPG (Full) | `configs/unetformer/ablation/unetformer_resnext101_oem_boundary_dapg.py` |
+
+### DA Position Variants (Exp 7)
+
+To be created per model by duplicating the train1000 config and setting `da_position='before_fusion'` or `'after_fusion'`. No separate config files ship with the repo today.
