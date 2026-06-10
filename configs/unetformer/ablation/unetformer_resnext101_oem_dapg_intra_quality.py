@@ -1,6 +1,7 @@
-# Exp 4 Ablation: CE + L_boundary ONLY
-# UNetFormer ResNeXt101 on OpenEarthMap train1000
-# Reference: unetformer_openearthmap_train3500_40k_resnext101_32x16d_postfusion.py
+# DAPG sub-component ablation: L_intra + L_quality (inter disabled)
+# Dynamic Anchor Prototype Grouping loss = L_intra + 0*L_inter + lambda_quality*L_quality
+# UNetFormer ResNeXt101 on OpenEarthMap train1500
+# Reference: unetformer_resnext101_oem_dapg_only.py
 
 _base_ = [
     '../../_base_/default_runtime.py',
@@ -43,12 +44,26 @@ model = dict(
             loss_weight=1.0),
         ignore_index=255,
         da_position='after_fusion',
-        # --- Ablation: boundary ONLY ---
-        boundary_lambda=0.15,
-        proto_lambda=0.0,
+        # --- Ablation: DAPG only, L_intra + L_quality components ---
+        boundary_lambda=0.0,
+        proto_lambda=0.1,
         contrastive_lambda=0.0,
         boundary_mode='sobel',
         boundary_loss_mode='binary',
+        dynamic_anchor=dict(
+            type='DynamicAnchorModule',
+            max_groups=32,
+            temperature=0.1,
+            num_iters=3,
+            ema_decay=0.9,
+            min_quality=0.3,
+        ),
+        dapg_loss=dict(
+            type='DAPGLoss',
+            margin=0.3,
+            lambda_inter=0.0,
+            lambda_quality=0.1,
+        ),
     ),
     train_cfg=dict(),
     test_cfg=dict(mode='whole'),
@@ -70,7 +85,7 @@ optimizer = dict(
             'quality_net': dict(lr_mult=5.0, decay_mult=1.0),
         }))
 
-work_dir = './work_dirs/openearthmap/ablation/unetformer_resnext101_boundary_only'
+work_dir = './work_dirs/openearthmap/ablation/unetformer_resnext101_dapg_intra_quality'
 data = dict(samples_per_gpu=8,
             workers_per_gpu=2,
             train=dict(

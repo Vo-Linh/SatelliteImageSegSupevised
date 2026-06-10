@@ -1,5 +1,5 @@
-# UNetFormer B0 on OpenEarthMap - Train on 1500 samples
-# Paper-faithful: ResNet18 encoder + GLA decoder + DAPCN
+# UNetFormer B0 on OpenEarthMap - Train on 1500 samples, 40k iterations
+# Standard UNetFormer without DAPCN components
 
 _base_ = [
     '../_base_/default_runtime.py',
@@ -15,18 +15,18 @@ model = dict(
     pretrained=None,
     backbone=dict(
         type='TIMMBackbone',
-        model_name='resnet18.fb_swsl_ig1b_ft_in1k',
+        model_name='resnext101_32x16d.fb_swsl_ig1b_ft_in1k',
         features_only=True,
         pretrained=True,
         out_indices=(1, 2, 3, 4),
     ),
     decode_head=dict(
-        type='UNetFormerDAPCNHead',
-        in_channels=[64, 128, 256, 512],
+        type='UNetFormerHead',
+        in_channels=[256, 512, 1024, 2048],
         in_index=[0, 1, 2, 3],
         channels=64,
         num_classes=9,
-        encoder_channels=(64, 128, 256, 512),
+        encoder_channels=(256, 512, 1024, 2048),
         decode_channels=64,
         window_size=8,
         num_heads=8,
@@ -41,22 +41,6 @@ model = dict(
             use_sigmoid=False,
             loss_weight=1.0),
         ignore_index=255,
-        da_position='before_fusion',
-        boundary_lambda=0.3,
-        proto_lambda=0.1,
-        contrastive_lambda=0.1,
-        boundary_mode='sobel',
-        boundary_loss_mode='binary',
-        dynamic_anchor=dict(
-            type='DynamicAnchorModule',
-            max_groups=64,
-            temperature=0.1,
-            num_iters=3,
-        ),
-        dapg_loss=dict(
-            type='DAPGLoss',
-            margin=0.3,
-        ),
     ),
     train_cfg=dict(),
     test_cfg=dict(mode='whole'),
@@ -64,9 +48,12 @@ model = dict(
 
 # Override train split for 1500 samples
 data = dict(
+    samples_per_gpu=4,
+    workers_per_gpu=2,
     train=dict(
-        split='train_1500.txt'
+        split='train_1500_fixed.txt'
     )
 )
 
-work_dir = './work_dirs/openearthmap/unetformer_train1500'
+work_dir = './work_dirs/openearthmap/unetformer_train1500_baseline'
+evaluation = dict(interval=4000, metric='mIoU', pre_eval=True, save_best='mIoU')
