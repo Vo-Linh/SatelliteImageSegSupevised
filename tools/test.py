@@ -13,8 +13,26 @@ import os.path as osp
 import sys
 import warnings
 
+# Silence libtiff GeoTIFF tag warnings from OpenCV (set before cv2 import).
+os.environ.setdefault('OPENCV_LOG_LEVEL', 'ERROR')
+
 import mmcv
 import torch
+
+# PyTorch >= 2.6 defaults torch.load(weights_only=True), which rejects the
+# numpy scalars / random state that mmcv stores in a checkpoint's `meta`.
+# Our checkpoints are self-produced and trusted, so restore the legacy
+# behavior. mmcv 1.x calls torch.load without weights_only, so we patch the
+# default rather than every call site.
+if tuple(int(x) for x in torch.__version__.split('.')[:2]) >= (2, 6):
+    _orig_torch_load = torch.load
+
+    def _torch_load_weights_false(*args, **kwargs):
+        kwargs.setdefault('weights_only', False)
+        return _orig_torch_load(*args, **kwargs)
+
+    torch.load = _torch_load_weights_false
+
 from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
 from mmcv.runner import (get_dist_info, init_dist, load_checkpoint,
                          wrap_fp16_model)
@@ -127,8 +145,9 @@ def main():
     if fp16_cfg is not None:
         wrap_fp16_model(model)
     checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
-    model.CLASSES = checkpoint['meta']['CLASSES']
-    model.PALETTE = checkpoint['meta']['PALETTE']
+    meta = checkpoint.get('meta', {})
+    model.CLASSES = meta.get('CLASSES', dataset.CLASSES)
+    model.PALETTE = meta.get('PALETTE', dataset.PALETTE)
 
     efficient_test = False
     if args.eval_options is not None:
