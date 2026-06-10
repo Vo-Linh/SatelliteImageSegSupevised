@@ -114,6 +114,7 @@ class DAPGLoss(nn.Module):
                 f"quality={loss_quality.item():.4f})"
             )
 
+
         loss_dict = {
             'loss_intra': loss_intra,
             'loss_inter': loss_inter,

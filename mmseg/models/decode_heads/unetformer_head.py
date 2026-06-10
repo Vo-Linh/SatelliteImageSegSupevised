@@ -47,6 +47,7 @@ class UNetFormerHead(BaseDecodeHead):
                  align_corners=False,
                  loss_decode=dict(type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
                  ignore_index=255,
+                 sampler=None,
                  init_cfg=dict(type='Normal', std=0.01, override=dict(name='conv_seg'))):
         super().__init__(
             in_channels=in_channels,
@@ -61,6 +62,7 @@ class UNetFormerHead(BaseDecodeHead):
             align_corners=align_corners,
             loss_decode=loss_decode,
             ignore_index=ignore_index,
+            sampler=sampler,
             init_cfg=init_cfg,
         )
         self.encoder_channels = encoder_channels
@@ -171,10 +173,13 @@ class UNetFormerDAPCNHead(DAPCNHeadMixin, UNetFormerHead):
                  num_prototypes_per_class=1,
                  prototype_ema=0.999,
                  warmup_iters=500,
+                 lovasz_lambda=0.0,
+                 lovasz_loss=None,
                  dynamic_anchor=None,
                  dapg_loss=None,
                  affinity_loss=None,
                  ignore_index=255,
+                 sampler=None,
                  init_cfg=dict(type='Normal', std=0.01, override=dict(name='conv_seg'))):
         # Initialize UNetFormerHead
         UNetFormerHead.__init__(
@@ -197,6 +202,7 @@ class UNetFormerDAPCNHead(DAPCNHeadMixin, UNetFormerHead):
             align_corners=align_corners,
             loss_decode=loss_decode,
             ignore_index=ignore_index,
+            sampler=sampler,
             init_cfg=init_cfg,
         )
         # Initialize DAPCN components
@@ -214,6 +220,8 @@ class UNetFormerDAPCNHead(DAPCNHeadMixin, UNetFormerHead):
             num_prototypes_per_class=num_prototypes_per_class,
             prototype_ema=prototype_ema,
             warmup_iters=warmup_iters,
+            lovasz_lambda=lovasz_lambda,
+            lovasz_loss=lovasz_loss,
             dynamic_anchor=dynamic_anchor,
             dapg_loss=dapg_loss,
             affinity_loss=affinity_loss,

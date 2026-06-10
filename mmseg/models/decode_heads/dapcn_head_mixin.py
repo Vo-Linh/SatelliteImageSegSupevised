@@ -101,6 +101,8 @@ class DAPCNHeadMixin:
                    num_prototypes_per_class=1,
                    prototype_ema=0.999,
                    prototype_init_strategy='zeros',
+                   lovasz_lambda=0.0,
+                   lovasz_loss=None,
                    dynamic_anchor=None,
                    dapg_loss=None,
                    affinity_loss=None):
@@ -175,9 +177,20 @@ class DAPCNHeadMixin:
         self.contrastive_sample_ratio = contrastive_sample_ratio
         self.warmup_iters = warmup_iters
         self.num_prototypes_per_class = num_prototypes_per_class
+        self.lovasz_lambda = lovasz_lambda
 
         # Iteration counter (updated in forward_train)
         self.register_buffer('_iter', torch.tensor(0, dtype=torch.long))
+
+        # ---- Lovasz-Softmax auxiliary loss (direct mIoU surrogate) ----------
+        # Injected here (not via loss_decode, which is single in this fork).
+        # Gated by lovasz_lambda > 0; inert otherwise.
+        if self.lovasz_lambda > 0:
+            lv_cfg = lovasz_loss.copy() if lovasz_loss else {}
+            lv_cfg.setdefault('type', 'LovaszLoss')
+            lv_cfg.setdefault('loss_type', 'multi_class')
+            lv_cfg.setdefault('per_image', False)
+            self.lovasz_loss_fn = build_loss(lv_cfg)
 
         # ---- Build sub-modules -----------------------------------------------
 
@@ -291,6 +304,23 @@ class DAPCNHeadMixin:
         #         if torch.isnan(v):
         #             raise ValueError(f"dapcn_forward_train: {k} is NaN")
         #     losses.update(contrastive_losses)
+
+        # ---- 4. Lovasz-Softmax loss (direct mIoU surrogate) -----------------
+        # Computed at FULL label resolution (logits upsampled bilinearly to the
+        # GT size, matching how BaseDecodeHead.losses() computes CE) so the IoU
+        # surrogate is optimised at the same resolution the metric is measured.
+        if getattr(self, 'lovasz_lambda', 0.0) > 0:
+            seg_logits_full = F.interpolate(
+                seg_logits,
+                size=gt_semantic_seg.shape[2:],
+                mode='bilinear',
+                align_corners=self.align_corners)
+            gt_full = gt_semantic_seg.squeeze(1).long()
+            loss_lovasz = self.lovasz_lambda * self.lovasz_loss_fn(
+                seg_logits_full, gt_full, ignore_index=self.ignore_index)
+            if torch.isnan(loss_lovasz):
+                raise ValueError("dapcn_forward_train: loss_lovasz is NaN")
+            losses['loss_lovasz'] = loss_lovasz
 
         # ---- Advance iteration counter --------------------------------------
         self._iter += 1
