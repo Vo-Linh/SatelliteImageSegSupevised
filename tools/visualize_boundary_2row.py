@@ -1,8 +1,9 @@
 #!/usr/bin/env python
-"""Qual 2: Boundary Quality Visualization.
+"""Qual 2: Boundary Quality Visualization (2-Row Layout).
 
-Generates side-by-side boundary comparison:
-    GT boundary | Baseline predicted boundary | +DAPCN predicted boundary
+Generates side-by-side boundary comparison with 2 rows:
+    Row 1: Image | GT | Baseline Boundary | Baseline Overlay
+    Row 2: Image | GT | +DAPCN Boundary | +DAPCN Overlay
 
 Also computes boundary IoU and boundary F1 as quantitative metrics.
 
@@ -130,6 +131,32 @@ def pred_boundary_from_logits(logits):
     return boundary.squeeze(0).squeeze(0).cpu().numpy()
 
 
+def get_palette():
+    """Get OpenEarthMap color palette (9 classes)."""
+    return np.array([
+        [0, 0, 0],         # 0: Background
+        [255, 255, 255],   # 1: Buildings
+        [0, 0, 255],       # 2: Roads
+        [0, 255, 255],     # 3: Water
+        [0, 255, 0],       # 4: Vegetation
+        [255, 255, 0],     # 5: Agriculture
+        [255, 0, 0],       # 6: Bareland
+        [128, 0, 128],     # 7: Snow/Ice
+        [255, 165, 0],     # 8: Others
+    ], dtype=np.uint8)
+
+
+def logits_to_seg(logits):
+    """Convert logits to colored segmentation mask."""
+    pred = torch.argmax(logits, dim=1).squeeze(0).cpu().numpy()
+    palette = get_palette()
+    h, w = pred.shape
+    seg_color = np.zeros((h, w, 3), dtype=np.uint8)
+    for cls_id in range(len(palette)):
+        seg_color[pred == cls_id] = palette[cls_id]
+    return seg_color, pred
+
+
 def gt_boundary_from_label(label_path, target_h, target_w, ignore_index=255):
     """Compute GT boundary map from label image."""
     label = cv2.imread(label_path, cv2.IMREAD_UNCHANGED)
@@ -167,6 +194,12 @@ def boundary_to_colormap(boundary, cmap='hot'):
     return (colored * 255).astype(np.uint8)
 
 
+def boundary_to_binary(boundary, threshold=0.5):
+    """Convert boundary map to binary white-on-black like GT."""
+    binary = (boundary > threshold).astype(np.uint8) * 255
+    return np.stack([binary, binary, binary], axis=-1)
+
+
 def overlay_boundary_on_image(img, boundary, color=(0, 255, 0),
                               threshold=0.5, alpha=0.6):
     """Overlay boundary contour on the original image."""
@@ -182,7 +215,7 @@ def overlay_boundary_on_image(img, boundary, color=(0, 255, 0),
 # ---------------------------------------------------------------
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Qual 2: Boundary Visualization')
+    parser = argparse.ArgumentParser(description='Qual 2: Boundary Visualization (2-Row Layout)')
     parser.add_argument('--config', required=True, help='DAPCN model config')
     parser.add_argument('--checkpoint', required=True, help='DAPCN checkpoint')
     parser.add_argument('--baseline-config', default=None,
@@ -245,6 +278,7 @@ def main():
         # DAPCN prediction
         logits = inference_single(model, img_path, pipeline, args.device)
         _, _, H, W = logits.shape
+        pred_seg, _ = logits_to_seg(logits)
         pred_boundary = pred_boundary_from_logits(logits)
 
         # GT boundary
@@ -254,45 +288,98 @@ def main():
         m_dapcn = compute_boundary_metrics(pred_boundary, gt_boundary)
         all_metrics['dapcn'].append(m_dapcn)
 
-        # Visualize
+        # Visualize - use binary like GT for easier comparison
         img_resized = cv2.resize(img_rgb, (W, H))
-        gt_vis = boundary_to_colormap(gt_boundary)
-        pred_vis = boundary_to_colormap(pred_boundary)
-        gt_overlay = overlay_boundary_on_image(img_resized, gt_boundary)
+        gt_vis = boundary_to_binary(gt_boundary)
+        pred_vis = boundary_to_binary(pred_boundary)
         pred_overlay = overlay_boundary_on_image(img_resized, pred_boundary)
 
-        panels = [img_resized, gt_vis, gt_overlay]
-        labels = ['Image', 'GT Boundary', 'GT Overlay']
-
+        # Build 2-row layout
+        # Row 1: Image, GT, Baseline Boundary, Baseline Overlay
+        # Row 2: Image, GT, DAPCN Boundary, DAPCN Overlay
+        
+        import matplotlib.pyplot as plt
+        
         if baseline_model is not None:
             base_logits = inference_single(baseline_model, img_path,
                                            pipeline, args.device)
+            base_seg, _ = logits_to_seg(base_logits)
             base_boundary = pred_boundary_from_logits(base_logits)
-            base_vis = boundary_to_colormap(base_boundary)
+            base_vis_binary = boundary_to_binary(base_boundary)
+            base_vis_heatmap = boundary_to_colormap(base_boundary)
             base_overlay = overlay_boundary_on_image(img_resized, base_boundary)
             m_base = compute_boundary_metrics(base_boundary, gt_boundary)
             all_metrics['baseline'].append(m_base)
-
-            panels += [base_vis, base_overlay]
-            labels += [
-                f"Baseline (F1={m_base['boundary_f1']:.3f})",
-                'Baseline Overlay',
-            ]
-
-        panels += [pred_vis, pred_overlay]
-        labels += [
-            f"+DAPCN (F1={m_dapcn['boundary_f1']:.3f})",
-            '+DAPCN Overlay',
-        ]
-
-        # Compose figure
-        import matplotlib.pyplot as plt
-        n = len(panels)
-        fig, axes = plt.subplots(1, n, figsize=(4 * n, 4))
-        for ax, panel, label in zip(axes, panels, labels):
-            ax.imshow(panel)
-            ax.set_title(label, fontsize=10)
-            ax.axis('off')
+            
+            # Create 2x6 grid - show both heatmap and binary
+            fig, axes = plt.subplots(2, 6, figsize=(24, 8))
+            
+            # Row 1: Baseline
+            axes[0, 0].imshow(img_resized)
+            axes[0, 0].set_title('Image', fontsize=11, fontweight='bold')
+            axes[0, 0].axis('off')
+            
+            axes[0, 1].imshow(gt_vis)
+            axes[0, 1].set_title('GT Boundary', fontsize=11, fontweight='bold')
+            axes[0, 1].axis('off')
+            
+            axes[0, 2].imshow(base_seg)
+            axes[0, 2].set_title('Baseline Seg', fontsize=11, fontweight='bold', color='blue')
+            axes[0, 2].axis('off')
+            
+            axes[0, 3].imshow(base_vis_heatmap)
+            axes[0, 3].set_title(f'Baseline Boundary (heatmap)', 
+                                fontsize=11, fontweight='bold', color='blue')
+            axes[0, 3].axis('off')
+            
+            axes[0, 4].imshow(base_vis_binary)
+            axes[0, 4].set_title(f'Baseline Binary (F1={m_base["boundary_f1"]:.3f})', 
+                                fontsize=11, fontweight='bold', color='blue')
+            axes[0, 4].axis('off')
+            
+            axes[0, 5].imshow(base_overlay)
+            axes[0, 5].set_title('Baseline Overlay', fontsize=11, fontweight='bold')
+            axes[0, 5].axis('off')
+            
+            # Row 2: DAPCN
+            axes[1, 0].imshow(img_resized)
+            axes[1, 0].set_title('Image', fontsize=11, fontweight='bold')
+            axes[1, 0].axis('off')
+            
+            axes[1, 1].imshow(gt_vis)
+            axes[1, 1].set_title('GT Boundary', fontsize=11, fontweight='bold')
+            axes[1, 1].axis('off')
+            
+            axes[1, 2].imshow(pred_seg)
+            axes[1, 2].set_title('+DAPCN Seg', fontsize=11, fontweight='bold', color='red')
+            axes[1, 2].axis('off')
+            
+            pred_vis_heatmap = boundary_to_colormap(pred_boundary)
+            axes[1, 3].imshow(pred_vis_heatmap)
+            axes[1, 3].set_title('+DAPCN Boundary (heatmap)', 
+                                fontsize=11, fontweight='bold', color='red')
+            axes[1, 3].axis('off')
+            
+            axes[1, 4].imshow(pred_vis)
+            axes[1, 4].set_title(f'+DAPCN Binary (F1={m_dapcn["boundary_f1"]:.3f})', 
+                                fontsize=11, fontweight='bold', color='red')
+            axes[1, 4].axis('off')
+            
+            axes[1, 5].imshow(pred_overlay)
+            axes[1, 5].set_title('+DAPCN Overlay', fontsize=11, fontweight='bold')
+            axes[1, 5].axis('off')
+            
+        else:
+            # No baseline - single row
+            panels = [img_resized, gt_vis, pred_vis, pred_overlay]
+            labels = ['Image', 'GT Boundary', f'+DAPCN (F1={m_dapcn["boundary_f1"]:.3f})', '+DAPCN Overlay']
+            
+            fig, axes = plt.subplots(1, 4, figsize=(16, 4))
+            for ax, panel, label in zip(axes, panels, labels):
+                ax.imshow(panel)
+                ax.set_title(label, fontsize=11, fontweight='bold')
+                ax.axis('off')
+        
         plt.tight_layout()
         fig.savefig(osp.join(args.out_dir, f'{stem}.png'), dpi=150,
                     bbox_inches='tight')

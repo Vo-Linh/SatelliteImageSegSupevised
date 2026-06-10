@@ -76,7 +76,8 @@ def build_pipeline(cfg):
         inner = test_pipeline_cfg[1]['transforms']
         pipeline_cfg = [test_pipeline_cfg[0]] + inner
     else:
-        pipeline_cfg = test_pipeline_cfg
+        pipeline_cfg = list(test_pipeline_cfg)
+    # Keep LoadAnnotations for feature extraction with labels
     return Compose(pipeline_cfg)
 
 
@@ -86,8 +87,11 @@ def extract_features(model, img_path, pipeline, device='cuda:0'):
     Returns:
         features: (H, W, C) numpy array
     """
+    # Run pipeline step by step, skipping LoadAnnotations
     data = dict(img_info=dict(filename=img_path), img_prefix=None)
-    data = pipeline(data)
+    for t in pipeline.transforms:
+        if t.__class__.__name__ != 'LoadAnnotations':
+            data = t(data)
     img_tensor = data['img'][0].unsqueeze(0).to(device)
 
     with torch.no_grad():
@@ -246,9 +250,18 @@ def main():
         baseline_model = build_model(base_cfg, args.baseline_checkpoint,
                                      args.device)
 
-    # Collect images
-    img_files = sorted([f for f in os.listdir(args.img_dir)
-                        if f.endswith(args.img_suffix)])[:args.num_images]
+    # Collect images that have corresponding annotations
+    all_img_files = sorted([f for f in os.listdir(args.img_dir)
+                            if f.endswith(args.img_suffix)])
+    img_files = []
+    for f in all_img_files:
+        stem = f.replace(args.img_suffix, '')
+        ann_path = osp.join(args.ann_dir, stem + args.seg_map_suffix)
+        if osp.exists(ann_path):
+            img_files.append(f)
+        if len(img_files) >= args.num_images:
+            break
+    print(f"Found {len(img_files)} images with corresponding labels")
 
     # Accumulate features across images
     all_dapcn_feats, all_dapcn_labels = [], []

@@ -97,7 +97,7 @@ def get_da_input_feature(model, img_tensor):
             raise RuntimeError("Cannot derive fused feature for this head")
 
 
-def extract_assignments(model, img_path, pipeline, device='cuda:0'):
+def extract_assignments(model, img_path, pipeline, ann_path=None, device='cuda:0'):
     """Run DynamicAnchorModule forward and return assignment maps + metadata.
 
     Returns:
@@ -106,7 +106,10 @@ def extract_assignments(model, img_path, pipeline, device='cuda:0'):
         seg_pred: (H, W) argmax segmentation prediction
         feature_shape: (H, W) spatial dims of the DA feature
     """
-    data = dict(img_info=dict(filename=img_path), img_prefix=None)
+    data = dict(img_info=dict(filename=img_path), img_prefix=None,
+                seg_fields=[])
+    if ann_path is not None:
+        data['ann_info'] = dict(seg_map=ann_path)
     data = pipeline(data)
     img_tensor = data['img'][0].unsqueeze(0).to(device)
 
@@ -314,8 +317,18 @@ def main():
     model = build_model(cfg, args.checkpoint, args.device)
     pipeline = build_pipeline(cfg)
 
-    img_files = sorted([f for f in os.listdir(args.img_dir)
-                        if f.endswith(args.img_suffix)])[:args.num_images]
+    # Only process images that have corresponding annotations
+    all_img_files = sorted([f for f in os.listdir(args.img_dir)
+                            if f.endswith(args.img_suffix)])
+    img_files = []
+    for f in all_img_files:
+        stem = f.replace(args.img_suffix, '')
+        ann_path = osp.join(args.ann_dir, stem + args.seg_map_suffix)
+        if osp.exists(ann_path):
+            img_files.append(f)
+        if len(img_files) >= args.num_images:
+            break
+    print(f"Found {len(img_files)} images with corresponding labels")
 
     all_correlations = []
 
@@ -330,7 +343,7 @@ def main():
         gt_label = cv2.imread(ann_path, cv2.IMREAD_UNCHANGED)
 
         assign_map, quality, seg_pred, (H, W) = extract_assignments(
-            model, img_path, pipeline, args.device)
+            model, img_path, pipeline, ann_path=ann_path, device=args.device)
 
         K = assign_map.shape[2]
         top_indices = select_top_k_prototypes(
