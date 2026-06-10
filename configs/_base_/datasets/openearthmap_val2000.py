@@ -17,6 +17,7 @@ train_pipeline = [
     dict(type='Resize', img_scale=(1024, 1024), ratio_range=(0.5, 2.0), keep_ratio=True),
     dict(type='RandomCrop', crop_size=crop_size, cat_max_ratio=0.75),
     dict(type='RandomFlip', prob=0.5),
+    dict(type='RandomRotate', prob=0.5, degree=180, pad_val=0, seg_pad_val=255),
     dict(type='PhotoMetricDistortion'),
     dict(type='Normalize', **img_norm_cfg),
     dict(type='Pad', size=crop_size, pad_val=0, seg_pad_val=255),
@@ -37,7 +38,23 @@ test_pipeline = [
             dict(type='Pad', size=crop_size, pad_val=0, seg_pad_val=255),
             dict(type='ImageToTensor', keys=['img']),
             dict(type='Collect', keys=['img']),
-        ])]
+        ])
+]
+
+# Competition test pipeline: no LoadAnnotations (unlabeled test images)
+competition_test_pipeline = [
+    dict(type='LoadImageFromFile'),
+    dict(
+        type='MultiScaleFlipAug',
+        img_scale=(1024, 1024),
+        flip=False,
+        transforms=[
+            dict(type='Resize', img_scale=(1024, 1024), keep_ratio=False),
+            dict(type='Normalize', **img_norm_cfg),
+            dict(type='ImageToTensor', keys=['img']),
+            dict(type='Collect', keys=['img']),
+        ])
+]
 
 data = dict(
     samples_per_gpu=2,
@@ -57,14 +74,15 @@ data = dict(
         ann_dir='annotations/val',
         split='val_2000_fixed.txt',
         ignore_index=255,
-        pipeline=test_pipeline,
-        samples_per_gpu=2),
+        pipeline=test_pipeline),
     test=dict(
-        type=dataset_type,
-        data_root=data_root,
-        img_dir='images/val',
-        ann_dir='annotations/val',
-        split='val_2000_fixed.txt',
+        type='CustomDataset',
+        data_root='/home/ubuntu/oem_test/OpenEarthMap_wo_xBD/',
+        img_dir='',
+        img_suffix='.tif',
+        ann_dir='labels',
+        seg_map_suffix='.tif',
+        split='/home/ubuntu/data/OpenEarthMap/OpenEarthMap_flat/test_competition.txt',
+        test_mode=True,
         ignore_index=255,
-        pipeline=test_pipeline,
-        samples_per_gpu=2))
+        pipeline=competition_test_pipeline))

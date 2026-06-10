@@ -16,7 +16,6 @@ model = dict(
         channels=64,
         ppm_channels=128,
         norm_cfg=norm_cfg,
-        act_cfg=dict(type='ReLU', inplace=True),
     ),
     decode_head=dict(
         type='DDRNetDAPCNHead',
