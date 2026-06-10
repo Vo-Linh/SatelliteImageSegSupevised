@@ -8,6 +8,7 @@ from .pidnet_head import PIDNetHead, PIDNetDAPCNHead
 from .knet_head import KNetHead, KNetDAPCNHead
 from .segmenter_head import SegMenterHead, SegMenterDAPCNHead
 from .unetformer_head import UNetFormerHead, UNetFormerDAPCNHead
+from .pyramidmamba_head import PyramidMambaHead, PyramidMambaDAPCNHead
 
 __all__ = [
     'BaseDecodeHead',
@@ -17,4 +18,5 @@ __all__ = [
     'KNetHead', 'KNetDAPCNHead',
     'SegMenterHead', 'SegMenterDAPCNHead',
     'UNetFormerHead', 'UNetFormerDAPCNHead',
+    'PyramidMambaHead', 'PyramidMambaDAPCNHead',
 ]
